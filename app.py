@@ -22,6 +22,7 @@ if page == "📝 護理師劃假入口":
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["google_sheets_key"], 
                 ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"])
         client = gspread.authorize(creds)
+        # 使用您的試算表 ID
         sheet = client.open_by_key("1C5iM_4aqANm4z9mXZzrMZ3vbQLcj4O_wL2_AJK5BjsU").sheet1
 
         name = st.selectbox("請選擇您的名字", ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚', '安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒'])
@@ -35,26 +36,29 @@ if page == "📝 護理師劃假入口":
         st.error("⚠️ 系統尚未設定 Google Sheets 金鑰。")
 
 # ==========================================
-# 模式二：阿長排班系統 (5.8 嚴格版完整邏輯)
+# 模式二：阿長排班系統 (5.8 嚴格版)
 # ==========================================
 else:
-  # --- 1. CSS 設計 ---
-st.markdown("""
-    <style>
-    [data-testid="stSidebar"] { left: unset; right: 0; border-left: 1px solid #f0f2f6; }
-    [data-testid="stSidebarCollapsedControl"] { left: unset; right: 10px; }
-    .stButton button { font-weight: bold; border-radius: 8px; cursor: default; }
-    .magic-btn button { background-color: #ff4b4b; color: white; border: 2px solid #ff4b4b; }
-    </style>
-""", unsafe_allow_html=True)
+    st.title("🏥 智慧護理排班系統 (5.8 嚴格邏輯版)")
+    
+    # --- CSS 設計 ---
+    st.markdown("""
+        <style>
+        [data-testid="stSidebar"] { left: unset; right: 0; border-left: 1px solid #f0f2f6; }
+        .stButton button { font-weight: bold; border-radius: 8px; }
+        </style>
+    """, unsafe_allow_html=True)
 
-
-# --- 2. 預設名單 (已全面套用打碼保護) ---
-DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
-DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
-DEFAULT_HN = '護理長-林O穎'
-
-def load_staff_data():
+    # --- 預設資料與狀態初始化 ---
+    DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
+    DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
+    DEFAULT_HN = '護理長-林O穎'
+    
+    # 這裡放入您 5.8 版原本的所有邏輯 (render_staff_card, cp_model, 等)
+    # 請確保縮排正確：所有 def 和 if/for 都要往內縮
+    
+    st.warning("⚠️ 此處請接著貼上您 5.8 版原本的排班邏輯代碼。")
+    def load_staff_data():
     data = {
         "heme": DEFAULT_HEME, "pall": DEFAULT_PALL, "hn": DEFAULT_HN,
         "heme_seniors": ['血腫-蔡O樺', '血腫-吳O茹'], 
