@@ -661,7 +661,7 @@ with tab_run:
                                         assigned = SHIFTS[s]
                                         break
                             row_shifts.append(assigned)
-                            shift_dict[n][d] = assigned # 🟢 存入字典
+                            shift_dict[n][d] = assigned 
                             
                             if d in user_pre_shifts or (n == hn_name and assigned != 'Off'): display_row.append(f"<span style='color:red; font-weight:bold;'>{assigned}</span>")
                             else: display_row.append(assigned)
@@ -809,6 +809,3 @@ with tab_run:
 
                 st.download_button("📥 下載嚴格邏輯版 Excel (含小班表)", output.getvalue(), f"{year}年{month}月_排班表.xlsx", type="primary")
             else: st.error("❌ 無解！(跨月防護或預排假導致嚴重衝突，請稍微放寬條件)")
-"""
-with open("app.py", "w", encoding="utf-8") as f: f.write(code)
-print("✅ 步驟 1 (5.8 嚴格邏輯 + 小班表) 更新完成！")
