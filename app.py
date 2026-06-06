@@ -18,7 +18,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 嚴格邏輯 + 小班表)")
+st.title("🏥 智慧護理排班系統 (5.8 嚴格邏輯純淨版)")
 
 # --- 2. 預設名單 (已全面套用打碼保護) ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -616,7 +616,7 @@ with tab_run:
                 elif surplus_amount > 0: 
                     st.info(f"💡 班表出爐！本月有 {surplus_amount} 個班次多出人力。")
                 elif not unrescued_l: 
-                    st.success(f"✅ 完美報表產出！已為您附上【總表】與【口袋小班表】，請下載 Excel 供主管審核！")
+                    st.success(f"✅ 完美報表產出！請下載 Excel 供主管審核！")
                 
                 excel_data = []
                 display_data = {} 
@@ -638,9 +638,6 @@ with tab_run:
                 global_n, global_d, global_e = [0.0]*num_days, [0.0]*num_days, [0.0]*num_days
                 stats = {} 
                 
-                # 🟢 為了小班表，把每個人的每日班別存起來
-                shift_dict = {n: {} for n in all_staff}
-                
                 for group_name, staff_list, short_name in groups:
                     excel_data.append([group_name] + [''] * (len(date_row) - 1))
                     display_data[group_name] = [''] * num_days
@@ -661,7 +658,6 @@ with tab_run:
                                         assigned = SHIFTS[s]
                                         break
                             row_shifts.append(assigned)
-                            shift_dict[n][d] = assigned 
                             
                             if d in user_pre_shifts or (n == hn_name and assigned != 'Off'): display_row.append(f"<span style='color:red; font-weight:bold;'>{assigned}</span>")
                             else: display_row.append(assigned)
@@ -721,19 +717,6 @@ with tab_run:
                 st.markdown(pd.DataFrame(display_data, index=headers).T.to_html(escape=False), unsafe_allow_html=True)
                 st.write("📊 本月班別統計"); st.dataframe(pd.DataFrame(stats).T)
                 
-                # 🟢 準備【小班表】(直式) 的資料
-                small_data = []
-                small_header = ['日期', '星期'] + all_staff
-                small_data.append(small_header)
-                for d in range(1, num_days+1):
-                    row = [f"{month}/{d}", weekdays_map[calendar.weekday(year, month, d)]]
-                    for n in all_staff:
-                        if n == hn_name: s = st.session_state.daily_shifts.get(n, {}).get(d, 'Off')
-                        else: s = shift_dict[n].get(d, '')
-                        row.append(s)
-                    small_data.append(row)
-                
-                # 🟢 開始寫入 Excel
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer: 
                     # 1. 寫入【總表】
@@ -783,29 +766,5 @@ with tab_run:
                             else: ws_main.write(r_idx, c_idx, val, b_fmt)
                     ws_main.freeze_panes(2, 4)
 
-                    # 2. 寫入【小班表】
-                    pd.DataFrame(small_data).to_excel(writer, sheet_name='小班表', header=False, index=False)
-                    ws_small = writer.sheets['小班表']
-                    ws_small.set_column(0, 0, 8) 
-                    ws_small.set_column(1, 1, 6) 
-                    ws_small.set_column(2, 2+len(all_staff), 8) 
-                    
-                    for r_idx, row_data in enumerate(small_data):
-                        if r_idx == 0:
-                            for c_idx, val in enumerate(row_data): ws_small.write(r_idx, c_idx, val, h_fmt)
-                            continue
-                        
-                        d = r_idx
-                        wd = calendar.weekday(year, month, d)
-                        for c_idx, val in enumerate(row_data):
-                            if c_idx < 2:
-                                ws_small.write(r_idx, c_idx, val, sw_fmt if wd >= 5 else b_fmt)
-                            else:
-                                n = all_staff[c_idx - 2]
-                                is_pre = (n == hn_name and st.session_state.daily_shifts.get(n, {}).get(d)) or (n != hn_name and d in st.session_state.daily_shifts.get(n, {}))
-                                fmt = (rw_fmt if is_pre else w_fmt) if wd >= 5 else (r_fmt if is_pre else b_fmt)
-                                ws_small.write(r_idx, c_idx, val, fmt)
-                    ws_small.freeze_panes(1, 2)
-
-                st.download_button("📥 下載嚴格邏輯版 Excel (含小班表)", output.getvalue(), f"{year}年{month}月_排班表.xlsx", type="primary")
+                st.download_button("📥 下載嚴格邏輯版 Excel (純淨總表)", output.getvalue(), f"{year}年{month}月_排班表.xlsx", type="primary")
             else: st.error("❌ 無解！(跨月防護或預排假導致嚴重衝突，請稍微放寬條件)")
