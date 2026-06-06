@@ -5,30 +5,40 @@ from ortools.sat.python import cp_model
 import io
 import json
 import os
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 新增：入口選擇器 ---
+st.set_page_config(page_title="護理站智慧整合系統", layout="wide")
+
+# --- 側邊選單：入口選擇器 ---
 page = st.sidebar.radio("請選擇系統模式", ["🏥 阿長排班系統", "📝 護理師劃假入口"])
 
+# ==========================================
+# 模式一：護理師劃假入口
+# ==========================================
 if page == "📝 護理師劃假入口":
-    st.title("📝 護理師劃假網頁")
-    # 把我們剛剛寫的那段劃假程式碼貼在這裡...
-    st.write("這裡是學姊劃假的區域...")
-    st.stop() # 讓程式執行到這裡就停止，不往下跑排班系統
+    st.title("📝 護理師專屬劃假網頁")
+    if "google_sheets_key" in st.secrets:
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["google_sheets_key"], 
+                ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"])
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key("1C5iM_4aqANm4z9mXZzrMZ3vbQLcj4O_wL2_AJK5BjsU").sheet1
 
-# --- 以下維持原本的排班系統程式碼 ---
-st.title("🏥 智慧護理排班系統 (5.8 嚴格邏輯版)")
-# ... (原本的排班系統程式碼)
-import streamlit as st
-import pandas as pd
-import calendar
-from ortools.sat.python import cp_model
-import io
-import json
-import os
+        name = st.selectbox("請選擇您的名字", ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚', '安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒'])
+        date = st.selectbox("請選擇日期", [f"{i}號" for i in range(1, 32)])
+        shift = st.selectbox("您要劃什麼班？", ["Off", "D", "E", "N"])
 
-st.set_page_config(page_title="護理排班系統 (嚴格邏輯版)", layout="wide")
+        if st.button("送出劃假"):
+            sheet.append_row([pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"), name, date, shift])
+            st.success(f"✅ 已記錄 {name} 的 {date} 為 {shift}")
+    else:
+        st.error("⚠️ 系統尚未設定 Google Sheets 金鑰。")
 
-# --- 1. CSS 設計 ---
+# ==========================================
+# 模式二：阿長排班系統 (5.8 嚴格版完整邏輯)
+# ==========================================
+else:
+  # --- 1. CSS 設計 ---
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { left: unset; right: 0; border-left: 1px solid #f0f2f6; }
