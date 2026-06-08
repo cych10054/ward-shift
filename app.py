@@ -70,7 +70,7 @@ if page == "📝 護理師劃假入口":
             st.markdown("#### 📅 選擇預假日期 (彈出式月曆)")
             
             selected_date = st.date_input("點擊下方選擇日期：", value=datetime.today())
-            shift = st.selectbox("您要劃什麼班？", ["Off", "D", "E", "N"])
+            shift = st.selectbox("您要劃什麼班？", ["Off", "D", "E", "N", "4-8", "1-8"])
             
             # 格式化日期，方便之後阿長匯入 Excel 看得懂
             date_str = f"{selected_date.month}/{selected_date.day}"
