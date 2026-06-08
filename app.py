@@ -7,109 +7,148 @@ import json
 import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 
-# --- 1. 頁面全域設定 ---
+# --- 1. 頁面設定 ---
 st.set_page_config(page_title="護理站智慧整合系統", layout="wide")
 
-# CSS 樣式美化
-st.markdown("""
-    <style>
-    [data-testid="stSidebar"] { left: unset; right: 0; border-left: 1px solid #f0f2f6; }
-    [data-testid="stSidebarCollapsedControl"] { left: unset; right: 10px; }
-    .stButton button { font-weight: bold; border-radius: 8px; }
-    .magic-btn button { background-color: #ff4b4b; color: white; border: 2px solid #ff4b4b; }
-    </style>
-""", unsafe_allow_html=True)
+# --- 2. 員工資料庫 (原編對應) ---
+EMP_DB = {
+    "05768": "血腫-蔡O樺", "10054": "血腫-吳O茹", "13218": "血腫-張O葳", 
+    "13598": "血腫-葉O菁", "13717": "血腫-蔡O蓁", "16148": "血腫-呂O岑", 
+    "16623": "血腫-洪O蔚",
+    "03125": "安寧-龔O如", "04009": "安寧-葉O敏", "13217": "安寧-沈O叡", 
+    "12820": "安寧-張O嘉", "13736": "安寧-許O禎", "13533": "安寧-吳O萍", 
+    "15783": "安寧-劉O君", "16147": "安寧-鐘O淇", "16391": "安寧-洪O安", 
+    "16449": "安寧-陳O柔", "16625": "安寧-黃O柔", "16663": "安寧-李O軒",
+    "03059": "護理長-林O穎"
+}
 
-# --- 2. 預設名單與資料讀寫 ---
-DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
-DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
-DEFAULT_HN = '護理長-林O穎'
+if 'logged_in_user' not in st.session_state:
+    st.session_state.logged_in_user = None
 
-def load_staff_data():
-    data = {
-        "heme": DEFAULT_HEME, 
-        "pall": DEFAULT_PALL, 
-        "hn": DEFAULT_HN,
-        "heme_seniors": ['血腫-蔡O樺', '血腫-吳O茹'], 
-        "pall_seniors": ['安寧-龔O如', '安寧-葉O敏']
-    }
-    if os.path.exists('staff_v5.json'):
-        try:
-            with open('staff_v5.json', 'r', encoding='utf-8') as f:
-                saved = json.load(f)
-                if 'heme' in saved: data['heme'] = [x.strip() for x in saved['heme'] if x.strip()]
-                if 'pall' in saved: data['pall'] = [x.strip() for x in saved['pall'] if x.strip()]
-                if 'hn' in saved: data['hn'] = saved['hn'].strip()
-                if 'heme_seniors' in saved: data['heme_seniors'] = [x.strip() for x in saved['heme_seniors'] if x.strip()]
-                if 'pall_seniors' in saved: data['pall_seniors'] = [x.strip() for x in saved['pall_seniors'] if x.strip()]
-        except: pass
-    return data
-
-def save_staff_data(data):
-    try:
-        with open('staff_v5.json', 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-    except: pass
-
-# 載入名單資料
-staff_data = load_staff_data()
-heme_staff = staff_data.get('heme', DEFAULT_HEME)
-pall_staff = staff_data.get('pall', DEFAULT_PALL)
-hn_name = staff_data.get('hn', DEFAULT_HN)
-heme_seniors = staff_data.get('heme_seniors', [])
-pall_seniors = staff_data.get('pall_seniors', [])
-
-active_staff = heme_staff + pall_staff 
-all_staff = active_staff + [hn_name]
-
-SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', '1-8', 'M', '公', 'L']
-
-def fmt_num(n):
-    return int(n) if n == int(n) else n
-
-# --- 3. 全域狀態初始化 (Session State) ---
-if 'daily_shifts' not in st.session_state: st.session_state.daily_shifts = {n: {} for n in all_staff}
-if 'fixed' not in st.session_state: st.session_state.fixed = {n: "無 (混合)" for n in all_staff}
-if 'prev_status' not in st.session_state: st.session_state.prev_status = {n: {'shift': 'Off'} for n in all_staff}
-if 'prev_streak' not in st.session_state: st.session_state.prev_streak = {n: 0 for n in all_staff}
-
-# --- 4. 側邊欄入口切換 ---
+# --- 3. 側邊欄入口選擇器 ---
 page = st.sidebar.radio("請選擇系統模式", ["🏥 阿長排班系統", "📝 護理師劃假入口"])
 
 # ==========================================
-# 模式一：護理師劃假入口 (連動 Google Sheets)
+# 模式一：護理師劃假入口 (2.0 登入版 + 月曆)
 # ==========================================
 if page == "📝 護理師劃假入口":
     st.title("📝 護理師專屬劃假網頁")
+    
     if "google_sheets_key" in st.secrets:
-        try:
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(
-                st.secrets["google_sheets_key"], 
-                ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-            )
-            client = gspread.authorize(creds)
-            sheet = client.open_by_key("1C5iM_4aqANm4z9mXZzrMZ3vbQLcj4O_wL2_AJK5BjsU").sheet1
+        # 連接 Google Sheets
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["google_sheets_key"], 
+                ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"])
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key("1C5iM_4aqANm4z9mXZzrMZ3vbQLcj4O_wL2_AJK5BjsU").sheet1
+        
+        # --- 登入畫面 ---
+        if st.session_state.logged_in_user is None:
+            st.markdown("### 🔒 系統登入")
+            emp_id = st.text_input("請輸入您的員工編號", type="password")
+            if st.button("登入", type="primary"):
+                if emp_id in EMP_DB:
+                    st.session_state.logged_in_user = EMP_DB[emp_id]
+                    st.rerun()
+                else:
+                    st.error("❌ 找不到此員工編號，請重新確認。")
+        
+        # --- 登入後的月曆劃假畫面 ---
+        else:
+            name = st.session_state.logged_in_user
             
-            name = st.selectbox("請選擇您的名字", all_staff)
-            date = st.selectbox("請選擇日期", [f"{i}號" for i in range(1, 32)])
+            c1, c2 = st.columns([4, 1])
+            with c1:
+                st.markdown(f"### 👩‍⚕️ 歡迎，**{name}**")
+            with c2:
+                if st.button("登出系統"):
+                    st.session_state.logged_in_user = None
+                    st.rerun()
+            
+            st.divider()
+            st.markdown("#### 📅 選擇預假日期 (彈出式月曆)")
+            
+            selected_date = st.date_input("點擊下方選擇日期：", value=datetime.today())
             shift = st.selectbox("您要劃什麼班？", ["Off", "D", "E", "N"])
             
-            if st.button("送出劃假"):
-                sheet.append_row([pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"), name, date, shift])
-                st.success(f"✅ 已記錄 {name} 的 {date} 為 {shift}")
-        except Exception as e:
-            st.error(f"⚠️ 連線至 Google Sheets 時發生錯誤: {e}")
+            # 格式化日期，方便之後阿長匯入 Excel 看得懂
+            date_str = f"{selected_date.month}/{selected_date.day}"
+            
+            if st.button("送出劃假申請", type="primary"):
+                sheet.append_row([pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"), name, date_str, shift])
+                st.success(f"✅ 成功！已將 **{name}** 在 **{date_str}** 的班別記錄為 **{shift}**。")
+                st.balloons()
     else:
         st.error("⚠️ 系統尚未設定 Google Sheets 金鑰。")
 
 # ==========================================
-# 模式二：阿長排班系統 (5.8 嚴格邏輯純淨版)
+# 模式二：阿長排班系統 (5.8 嚴格邏輯版)
 # ==========================================
 else:
     st.title("🏥 智慧護理排班系統 (5.8 嚴格邏輯純淨版)")
 
-    # --- 側邊欄控制台 ---
+    # --- CSS 設計 ---
+    st.markdown("""
+        <style>
+        [data-testid="stSidebar"] { left: unset; right: 0; border-left: 1px solid #f0f2f6; }
+        [data-testid="stSidebarCollapsedControl"] { left: unset; right: 10px; }
+        .stButton button { font-weight: bold; border-radius: 8px; cursor: default; }
+        .magic-btn button { background-color: #ff4b4b; color: white; border: 2px solid #ff4b4b; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # --- 預設名單 ---
+    DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
+    DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
+    DEFAULT_HN = '護理長-林O穎'
+
+    def load_staff_data():
+        data = {
+            "heme": DEFAULT_HEME, "pall": DEFAULT_PALL, "hn": DEFAULT_HN,
+            "heme_seniors": ['血腫-蔡O樺', '血腫-吳O茹'], 
+            "pall_seniors": ['安寧-龔O如', '安寧-葉O敏']
+        }
+        if os.path.exists('staff_v5.json'):
+            try:
+                with open('staff_v5.json', 'r', encoding='utf-8') as f:
+                    saved = json.load(f)
+                    if 'heme' in saved: data['heme'] = [x.strip() for x in saved['heme'] if x.strip()]
+                    if 'pall' in saved: data['pall'] = [x.strip() for x in saved['pall'] if x.strip()]
+                    if 'hn' in saved: data['hn'] = saved['hn'].strip()
+                    if 'heme_seniors' in saved: data['heme_seniors'] = [x.strip() for x in saved['heme_seniors'] if x.strip()]
+                    if 'pall_seniors' in saved: data['pall_seniors'] = [x.strip() for x in saved['pall_seniors'] if x.strip()]
+            except: pass
+        return data
+
+    def save_staff_data(data):
+        try:
+            with open('staff_v5.json', 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+        except: pass
+
+    staff_data = load_staff_data()
+    heme_staff = staff_data.get('heme', DEFAULT_HEME)
+    pall_staff = staff_data.get('pall', DEFAULT_PALL)
+    hn_name = staff_data.get('hn', DEFAULT_HN)
+    heme_seniors = staff_data.get('heme_seniors', [])
+    pall_seniors = staff_data.get('pall_seniors', [])
+
+    active_staff = heme_staff + pall_staff 
+    all_staff = active_staff + [hn_name]
+
+    SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', '1-8', 'M', '公', 'L']
+
+    def fmt_num(n):
+        return int(n) if n == int(n) else n
+
+    # --- 狀態初始化 ---
+    if 'daily_shifts' not in st.session_state: st.session_state.daily_shifts = {n: {} for n in all_staff}
+    if 'fixed' not in st.session_state: st.session_state.fixed = {n: "無 (混合)" for n in all_staff}
+    if 'prev_status' not in st.session_state: st.session_state.prev_status = {n: {'shift': 'Off'} for n in all_staff}
+    if 'prev_streak' not in st.session_state: st.session_state.prev_streak = {n: 0 for n in all_staff}
+
+    # --- 側邊欄 ---
     with st.sidebar:
         st.header("⚙️ 排班系統控制台")
         
@@ -163,7 +202,7 @@ else:
                 p_we_d = c1.number_input("D ", 0, 10, 3, key="p_we_d")
                 p_we_e = c2.number_input("E ", 0, 10, 2, key="p_we_e")
                 p_we_n = c3.number_input("N ", 0, 10, 2, key="p_we_n")
-        
+    
         with st.expander("📁 Excel 智慧匯入/匯出", expanded=False):
             st.write("**第一步：下載公版 (含目前設定)**")
             template_data = []
@@ -332,7 +371,7 @@ else:
         min_bonus_days = st.number_input("💰 包班最低達標天數 (鐵血保證)", 1, 31, 15)
         holiday_dates = st.multiselect("勾選國定假日", list(range(1, num_days+1)))
 
-    # --- 5. 人員排班界面組件 ---
+    # --- 5. 人員卡片 ---
     def render_staff_card(name, year, month, is_hn=False):
         fix_status = st.session_state.fixed.get(name, "無")
         is_leader = name in heme_seniors or name in pall_seniors
@@ -374,7 +413,7 @@ else:
                             if day in holiday_dates: label = "🔴" + label
                             st.button(label, key=f"b_{name}_{day}", type=btn_type, use_container_width=True)
 
-    # --- 6. 主畫面 Tabs 標籤頁 ---
+    # --- 6. 主畫面 Tabs ---
     tab_heme, tab_pall, tab_run = st.tabs(["🩸 血腫組", "🕊️ 安寧組", "🚀 產生班表"])
 
     with tab_heme:
@@ -805,5 +844,4 @@ else:
                         ws_main.freeze_panes(2, 4)
 
                     st.download_button("📥 下載嚴格邏輯版 Excel (純淨總表)", output.getvalue(), f"{year}年{month}月_排班表.xlsx", type="primary")
-                else: 
-                    st.error("❌ 無解！(跨月防護或預排假導致嚴重衝突，請稍微放寬條件)")
+                else: st.error("❌ 無解！(跨月防護或預排假導致嚴重衝突，請稍微放寬條件)")
