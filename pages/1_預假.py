@@ -7,7 +7,7 @@ from datetime import datetime
 # ==========================================
 # 模式一：護理師劃假入口 (2.1 升級版)
 # ==========================================
-if page == "📝 護理師劃假入口":
+if page == "📝 預假入口":
     st.title("📝 護理師專屬劃假網頁")
     
     if "google_sheets_key" in st.secrets:
