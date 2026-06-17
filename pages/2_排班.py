@@ -59,7 +59,7 @@ pall_seniors = staff_data.get('pall_seniors', [])
 active_staff = heme_staff + pall_staff 
 all_staff = active_staff + [hn_name]
 
-SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', '1-8', 'M', '公', 'L', 'ND-D', 'ND-E', 'ND-N']
+SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', '1-8', 'M', '公', 'L' ]
 
 def fmt_num(n):
     return int(n) if n == int(n) else n
