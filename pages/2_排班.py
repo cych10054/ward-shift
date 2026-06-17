@@ -8,7 +8,7 @@ import os
 
 st.set_page_config(page_title="阿長排班系統", layout="wide")
 
-st.title("🏥 智慧護理排班系統 (5.8 嚴格白名單+可視化版)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版)")
 
 st.markdown("""
     <style>
@@ -51,8 +51,8 @@ pall_seniors = staff_data.get('pall_seniors', [])
 active_staff = heme_staff + pall_staff 
 all_staff = active_staff + [hn_name]
 
-# 加入 ND 相關班別 (總數 14 個, 索引 0~13)
-SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', '1-8', 'M', '公', 'L', 'ND-D', 'ND-E', 'ND-N']
+# 恢復為純淨的 11 個班別 (無 ND)
+SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', '1-8', 'M', '公', 'L']
 
 def fmt_num(n): return int(n) if n == int(n) else n
 
@@ -105,7 +105,7 @@ with st.sidebar:
             p_we_d = c1.number_input("假D", 0, 10, 3, key="p_we_d")
             p_we_e = c2.number_input("假E", 0, 10, 2, key="p_we_e")
             p_we_n = c3.number_input("假N", 0, 10, 2, key="p_we_n")
-    
+
     with st.expander("📁 Excel 智慧匯入/匯出", expanded=False):
         template_data = []
         date_row = {"姓名": "日期", "屬性": "", "上月最後班": "", "月底連上天數": ""}
@@ -124,66 +124,39 @@ with st.sidebar:
         df_template = pd.DataFrame(template_data)
         output_template = io.BytesIO()
         with pd.ExcelWriter(output_template, engine='xlsxwriter') as writer: df_template.to_excel(writer, index=False, sheet_name='預班表')
-        st.download_button("📥 下載 Excel 預班表", output_template.getvalue(), f"{year}年{month}月_打碼預班表.xlsx", type="primary", use_container_width=True)
+        st.download_button("📥 下載 Excel 預班表", output_template.getvalue(), f"{year}年{month}月_預班表.xlsx", type="primary", use_container_width=True)
         
         uploaded_file = st.file_uploader("上傳 Excel", type=["xlsx", "csv"], label_visibility="collapsed")
         if uploaded_file is not None:
-            if st.button("🚀 執行智慧匯入", use_container_width=True):
+            if st.button("🚀 執行匯入", use_container_width=True):
                 try:
                     df_in = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-                    
-                    # 1. 自動尋找標題列 (防呆：避免第一列是醫院大標題或空白)
-                    if not any('姓名' in str(c) for c in df_in.columns):
-                        for idx, r_vals in df_in.iterrows():
-                            if any('姓名' in str(v) for v in r_vals.values):
-                                df_in.columns = r_vals.astype(str).str.strip()
-                                df_in = df_in.iloc[idx+1:]
-                                break
-                                
-                    df_in.columns = df_in.columns.astype(str).str.strip()
-                    df_in = df_in.fillna("")
-                    
-                    # 2. 模糊配對欄位名稱 (不管叫「上月」還是「上月最後班」都抓得到)
-                    cols = df_in.columns.tolist()
-                    name_col = next((c for c in cols if '姓名' in c), "姓名")
-                    prop_col = next((c for c in cols if '屬性' in c), None)
-                    last_col = next((c for c in cols if '上月' in c), None)
-                    streak_col = next((c for c in cols if '天數' in c or '連上' in c), None)
-
+                    df_in.columns = df_in.columns.astype(str).str.strip(); df_in = df_in.fillna("")
                     for index, row in df_in.iterrows():
-                        name = str(row.get(name_col, "")).strip()
+                        name = str(row.get("姓名", "")).strip()
                         if not name or "星期" in name or "日期" in name or "計" in name or "組" in name: continue 
                         if name not in all_staff: continue 
                         
-                        # 3. 屬性匯入 (如果是空白，就保留網頁原本的設定，不覆蓋)
+                        prop_col = "屬性" if "屬性" in df_in.columns else None
                         if prop_col:
                             fv = str(row[prop_col]).strip().upper()
-                            if fv: # 有填寫才覆蓋
-                                new_fix = "新人 (純白班)" if any(x in fv for x in ['新', '純白']) else ("固定白 (D)" if any(x in fv for x in ['D', '白']) else ("固定小 (E)" if any(x in fv for x in ['E', '小']) else ("固定大 (N)" if any(x in fv for x in ['N', '大']) else "無 (混合)")))
-                                st.session_state.fixed[name] = new_fix
+                            new_fix = "新人 (純白班)" if any(x in fv for x in ['新', '純白']) else ("固定白 (D)" if any(x in fv for x in ['D', '白']) else ("固定小 (E)" if any(x in fv for x in ['E', '小']) else ("固定大 (N)" if any(x in fv for x in ['N', '大']) else "無 (混合)")))
+                            st.session_state.fixed[name] = new_fix
                         
-                        # 4. 上月最後班匯入
+                        last_col = "上月最後班" if "上月最後班" in df_in.columns else None
                         if last_col:
                             lv = str(row[last_col]).strip().upper()
-                            if lv: # 有填寫才覆蓋
-                                new_lv = 'Off' if any(x in lv for x in ['OFF', '休', '0', 'O']) else ('D' if 'D' in lv else ('L' if 'L' in lv else ('E' if 'E' in lv else ('N' if 'N' in lv else 'Off'))))
-                                st.session_state.prev_status[name] = {'shift': new_lv}
+                            new_lv = 'Off' if any(x in lv for x in ['OFF', '休', '0', 'O']) else ('D' if 'D' in lv else ('L' if 'L' in lv else ('E' if 'E' in lv else ('N' if 'N' in lv else 'Off'))))
+                            st.session_state.prev_status[name] = {'shift': new_lv}
 
-                        # 5. 月底連上天數匯入
+                        streak_col = "月底連上天數" if "月底連上天數" in df_in.columns else None
                         if streak_col:
-                            sv = str(row[streak_col]).strip()
-                            if sv: # 有填寫才覆蓋
-                                try: st.session_state.prev_streak[name] = int(float(sv))
-                                except: pass
+                            try: st.session_state.prev_streak[name] = int(float(str(row[streak_col]).strip()))
+                            except: st.session_state.prev_streak[name] = 0
                         
-                        # 6. 每日班別匯入
                         st.session_state.daily_shifts[name] = {}
                         for d in range(1, num_days + 1):
-                            val = ""
-                            if str(d) in cols: val = str(row[str(d)]).strip().upper()
-                            elif f"{month}/{d}" in cols: val = str(row[f"{month}/{d}"]).strip().upper()
-                            elif f"0{month}/{d:02d}" in cols: val = str(row[f"0{month}/{d:02d}"]).strip().upper()
-
+                            val = str(row.get(str(d), row.get(f"{month}/{d}", ""))).strip().upper()
                             if val:
                                 if val in ['OFF', '休', '0', 'O', 'OF']: val = 'Off'
                                 elif val in ['48', '4-8']: val = '4-8'
@@ -193,12 +166,10 @@ with st.sidebar:
                                 elif val in ['M', '行政']: val = 'M'
                                 elif val in ['公', '公假']: val = '公'
                                 elif val in ['L', 'LEADER']: val = 'L'
-                                elif val in ['NDD', 'ND-D', '支援白']: val = 'ND-D'
-                                elif val in ['NDE', 'ND-E', '支援小']: val = 'ND-E'
-                                elif val in ['NDN', 'ND-N', '支援大夜']: val = 'ND-N'
                                 if val in SHIFTS: st.session_state.daily_shifts[name][d] = val
-                    st.success("✅ 匯入成功！已自動校正欄位名稱與保留空白設定。"); st.rerun()
+                    st.success("✅ 匯入成功！"); st.rerun()
                 except Exception as e: st.error(f"檔案讀取失敗: {e}")
+
     with st.expander("👥 人員名單設定", expanded=False):
         with st.form("staff_form"):
             new_heme = st.text_area("🩸 血腫組", value="\n".join(heme_staff), height=150)
@@ -225,7 +196,7 @@ def render_staff_card(name, year, month, is_hn=False):
     with st.expander(f"{icon} {name}  |  狀態: {fix_status}", expanded=False):
         if not is_hn:
             c1, c2, c3 = st.columns([1, 1, 1.2])
-            with c1: st.session_state.prev_status[name]['shift'] = st.selectbox("上月最後班", ['Off', 'D', 'E', 'N', 'L', 'ND-D', 'ND-E', 'ND-N'], index=['Off', 'D', 'E', 'N', 'L', 'ND-D', 'ND-E', 'ND-N'].index(st.session_state.prev_status.get(name, {}).get('shift', 'Off')), key=f"ps_{name}")
+            with c1: st.session_state.prev_status[name]['shift'] = st.selectbox("上月最後班", ['Off', 'D', 'E', 'N', 'L'], index=['Off', 'D', 'E', 'N', 'L'].index(st.session_state.prev_status.get(name, {}).get('shift', 'Off')), key=f"ps_{name}")
             with c2: st.session_state.prev_streak[name] = st.number_input("月底連上天數", 0, 15, value=st.session_state.prev_streak.get(name, 0), key=f"streak_{name}")
             with c3: st.session_state.fixed[name] = st.selectbox("屬性", ["無 (混合)", "固定白 (D)", "固定小 (E)", "固定大 (N)", "新人 (純白班)"], index=["無 (混合)", "固定白 (D)", "固定小 (E)", "固定大 (N)", "新人 (純白班)"].index(st.session_state.fixed.get(name, "無 (混合)")), key=f"fix_{name}")
         st.divider()
@@ -258,43 +229,33 @@ with tab_run:
             fragmentation_penalties = []; shift_changes = []; streak_penalties = []
             for n in active_staff:
                 user_shifts = st.session_state.daily_shifts.get(n, {}); f_type = st.session_state.fixed.get(n, "")
-                
-                # 手動排的班無條件寫入
                 for d, s_val in user_shifts.items():
                     if s_val in SHIFTS: model.Add(work[(n, d, SHIFTS.index(s_val))] == 1)
-                
-                # 如果沒有手動排支援班，演算法絕對不能自己亂塞支援班
                 for d in range(1, num_days+1):
-                    if user_shifts.get(d) not in ['ND-D', 'ND-E', 'ND-N']: 
-                        for nd_idx in [11, 12, 13]: model.Add(work[(n, d, nd_idx)] == 0)
                     if user_shifts.get(d) != 'M': model.Add(work[(n, d, SHIFTS.index('M'))] == 0)
                     if user_shifts.get(d) != '公': model.Add(work[(n, d, SHIFTS.index('公'))] == 0)
 
-                # ==========================================
-                # 🔥 核心修正：嚴格白名單 (Allow-list) 防護網
-                # ==========================================
-                allowed_shifts = list(range(len(SHIFTS))) # 預設允許所有班別
-                
-                if "白" in f_type and "新" not in f_type: allowed_shifts = [0, 1, 6, 10] # 固定白：只能 Off, D, 8-12, L
-                elif "小" in f_type: allowed_shifts = [0, 2]                             # 固定小：只能 Off, E
-                elif "大" in f_type: allowed_shifts = [0, 3]                             # 固定大：只能 Off, N
-                elif "新" in f_type: allowed_shifts = [0, 1]                             # 新人：只能 Off, D
-
-                # 實施白名單過濾 (保護未預先指定的每一天)
-                for d in range(1, num_days+1):
-                    if d not in user_shifts: 
-                        for s_idx in range(1, len(SHIFTS)): # 排除 0 (Off) 永遠允許
-                            if s_idx not in allowed_shifts:
-                                model.Add(work[(n, d, s_idx)] == 0) 
-                
-                # 確保固定 E 班至少有 15 天 E
-                if "小" in f_type:
-                    model.Add(sum(work[(n, d, 2)] for d in range(1, num_days+1)) >= 15)
-                # ==========================================
+                # 恢復為 5.8 原始排除邏輯
+                if "白" in f_type and "新" not in f_type:
+                    for d in range(1, num_days+1): 
+                        if d not in user_shifts:
+                            for s_idx in [2, 3, 4, 5, 6, 7]: model.Add(work[(n,d,s_idx)]==0) 
+                elif "小" in f_type:
+                    for d in range(1, num_days+1): 
+                        if d not in user_shifts:
+                            for s_idx in [1, 3, 6, 8, 9, 10]: model.Add(work[(n,d,s_idx)]==0) 
+                elif "大" in f_type:
+                    for d in range(1, num_days+1): 
+                        if d not in user_shifts:
+                            for s_idx in [1, 2, 4, 5, 6, 7, 8, 9, 10]: model.Add(work[(n,d,s_idx)]==0) 
+                elif "新" in f_type:
+                    for d in range(1, num_days+1):
+                        if d not in user_shifts:
+                            for s_idx in [2, 3, 4, 5, 6, 7, 8, 9, 10]: model.Add(work[(n,d,s_idx)]==0)
 
                 for d in range(1, num_days):
                     if d in user_shifts and (d+1) in user_shifts: continue 
-                    for day_shift in [1, 6, 8, 9, 10, 11]: model.Add(work[(n, d, 2)] + work[(n, d+1, day_shift)] <= 1)
+                    for day_shift in [1, 6, 8, 9, 10]: model.Add(work[(n, d, 2)] + work[(n, d+1, day_shift)] <= 1)
                     for prev_shift in [1, 2, 4, 5, 6, 7, 8, 9, 10]: model.Add(work[(n, d, prev_shift)] + work[(n, d+1, 3)] <= 1)
 
                 for d in range(1, num_days):
@@ -395,11 +356,9 @@ with tab_run:
             status = solver.Solve(model)
 
             if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                st.success("✅ 排班完成！已完美鎖定固定班規則，您可以直接在下方預覽結果或下載 Excel。")
+                st.success("✅ 排班完成！(已完全恢復至 5.8 穩定版)")
                 
-                # 準備資料容器
-                excel_data = []
-                ui_display_rows = []
+                excel_data = []; ui_display_rows = []
                 ui_columns = ['組別', '姓名', '屬性'] + [str(d) for d in range(1, num_days+1)] + ['OFF', 'N', 'E']
                 
                 excel_data.append(['姓名', '屬性', '上月', '天數'] + [f"{month}/{d}" for d in range(1, num_days+1)] + ['OFF', 'N', 'E', '包班'])
@@ -420,14 +379,14 @@ with tab_run:
                                     if solver.Value(work[(n,d,s)]) == 1: assigned = SHIFTS[s]; break
                             row_shifts.append(assigned)
                             if n != hn_name:
-                                if assigned in ['N', 'ND-N']: grp_n[d-1] += 1; global_n[d-1] += 1
+                                if assigned == 'N': grp_n[d-1] += 1; global_n[d-1] += 1
                                 elif assigned in ['D', 'L']: grp_d[d-1] += 1; global_d[d-1] += 1
                                 elif assigned == '8-12': grp_d[d-1] += 0.5; global_d[d-1] += 0.5
-                                elif assigned in ['E', '12-8', 'ND-E']: grp_e[d-1] += 1; global_e[d-1] += 1
+                                elif assigned in ['E', '12-8']: grp_e[d-1] += 1; global_e[d-1] += 1
                                 elif assigned in ['4-8', '1-8']: grp_e[d-1] += 0.5; global_e[d-1] += 0.5
                         
-                        n_count = row_shifts.count('N') + row_shifts.count('ND-N')
-                        e_count = fmt_num(row_shifts.count('E') + row_shifts.count('12-8') + row_shifts.count('ND-E') + 0.5*(row_shifts.count('4-8') + row_shifts.count('1-8')))
+                        n_count = row_shifts.count('N')
+                        e_count = fmt_num(row_shifts.count('E') + row_shifts.count('12-8') + 0.5*(row_shifts.count('4-8') + row_shifts.count('1-8')))
                         
                         f_type = st.session_state.fixed.get(n, "無 (混合)")
                         excel_data.append([n, f_type, st.session_state.prev_status.get(n, {}).get('shift', 'Off'), st.session_state.prev_streak.get(n, 0)] + row_shifts + [row_shifts.count('Off'), n_count, e_count, '-'])
@@ -443,14 +402,11 @@ with tab_run:
                 excel_data.append(['全站總計 D', '', '', ''] + [fmt_num(x) for x in global_d] + ['', '', '', ''])
                 excel_data.append(['全站總計 E', '', '', ''] + [fmt_num(x) for x in global_e] + ['', '', '', ''])
                 
-                # --- 網頁預覽表格 (新增的部分) ---
                 st.markdown("### 📊 排班結果預覽")
                 df_ui = pd.DataFrame(ui_display_rows, columns=ui_columns)
                 st.dataframe(df_ui, use_container_width=True, height=500)
                 
-                # --- Excel 下載按鈕 ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer: pd.DataFrame(excel_data).to_excel(writer, sheet_name='總表', header=False, index=False)
-                st.download_button("📥 點擊下載完整 Excel 班表", output.getvalue(), f"{year}年{month}月_排班表.xlsx", type="primary", use_container_width=True)
-                
-            else: st.error("❌ 無解！(條件衝突，請確認人力需求是否過高，或預排假是否與固定班規則衝突)")
+                st.download_button("📥 下載 Excel 總表", output.getvalue(), f"{year}年{month}月_排班表.xlsx", type="primary", use_container_width=True)
+            else: st.error("❌ 無解！(條件衝突)")
