@@ -6,7 +6,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="護理師預假系統", layout="wide")
 
-# 1. 定義員工資料庫 (一定要加在每個檔案裡，或放在一個共用檔案)
+# 定義員工資料庫
 EMP_DB = {
     "05768": "血腫-蔡O樺", "10054": "血腫-吳O茹", "13218": "血腫-張O葳", 
     "13598": "血腫-葉O菁", "13717": "血腫-蔡O蓁", "16148": "血腫-呂O岑", 
@@ -17,7 +17,6 @@ EMP_DB = {
     "16663": "安寧-李O軒", "03059": "護理長-林O穎"
 }
 
-# 確保登入狀態存在
 if 'logged_in_user' not in st.session_state:
     st.session_state.logged_in_user = None
 
@@ -29,20 +28,22 @@ if "google_sheets_key" in st.secrets:
     client = gspread.authorize(creds)
     sheet = client.open_by_key("1C5iM_4aqANm4z9mXZzrMZ3vbQLcj4O_wL2_AJK5BjsU").sheet1
     
-    # 讀取資料
     all_records = sheet.get_all_records()
     
-    # 全站看板
     with st.expander("📊 點擊查看全站預約概況 (大家劃了哪些天)", expanded=False):
         if all_records:
             df_all = pd.DataFrame(all_records)
-            st.dataframe(df_all, use_container_width=True)
+            try:
+                cols = df_all.columns.tolist()
+                target_cols = [c for c in cols if any(k in c for k in ['姓名', '日期', '班'])]
+                st.dataframe(df_all[target_cols] if target_cols else df_all, use_container_width=True)
+            except Exception:
+                st.dataframe(df_all, use_container_width=True)
         else:
             st.info("目前尚無人預約。")
     
     st.divider()
 
-    # 登入機制
     if st.session_state.logged_in_user is None:
         st.markdown("### 🔒 系統登入")
         emp_id = st.text_input("請輸入您的員工編號", type="password")
@@ -56,7 +57,6 @@ if "google_sheets_key" in st.secrets:
         name = st.session_state.logged_in_user
         st.success(f"👩‍⚕️ 您好，{name}")
         
-        # 顯示個人預約歷史
         personal_records = [r for r in all_records if r['姓名'] == name]
         if personal_records:
             st.write("**您的預約紀錄：**")
@@ -70,7 +70,7 @@ if "google_sheets_key" in st.secrets:
             selected_date = st.date_input("選擇日期")
             date_label = f"{selected_date.month}/{selected_date.day}"
         with col_b:
-            shift = st.selectbox("選擇班別", ["Off", "D", "E", "N"])
+            shift = st.selectbox("選擇班別", ["Off", "D", "E", "N", "ND-D", "ND-E", "ND-N"])
         
         if st.button("送出預約"):
             sheet.append_row([pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"), name, date_label, shift])
