@@ -106,8 +106,6 @@ with st.sidebar:
             p_we_d = c1.number_input("假D", 0, 10, 3, key="p_we_d")
             p_we_e = c2.number_input("假E", 0, 10, 2, key="p_we_e")
             p_we_n = c3.number_input("假N", 0, 10, 2, key="p_we_n")
-            
-    with st.expander("📁 Excel 智慧匯入/匯出", expanded=False): 0, 10, 2)
     
     with st.expander("📁 Excel 智慧匯入/匯出", expanded=False):
         template_data = []
@@ -397,7 +395,6 @@ with tab_run:
                                 elif assigned in ['E', '12-8', 'ND-E']: grp_e[d-1] += 1; global_e[d-1] += 1
                                 elif assigned in ['4-8', '1-8']: grp_e[d-1] += 0.5; global_e[d-1] += 0.5
                         
-                        # 加入 ND 統計
                         n_count = row_shifts.count('N') + row_shifts.count('ND-N')
                         e_count = fmt_num(row_shifts.count('E') + row_shifts.count('12-8') + row_shifts.count('ND-E') + 0.5*(row_shifts.count('4-8') + row_shifts.count('1-8')))
                         excel_data.append([n, st.session_state.fixed.get(n, "無 (混合)"), st.session_state.prev_status.get(n, {}).get('shift', 'Off'), st.session_state.prev_streak.get(n, 0)] + row_shifts + [row_shifts.count('Off'), n_count, e_count, '-'])
