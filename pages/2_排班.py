@@ -246,8 +246,10 @@ with st.sidebar:
                                 elif val in ['M', '行政']: val = 'M'
                                 elif val in ['公', '公假']: val = '公'
                                 elif val in ['L', 'LEADER']: val = 'L'
-                                if val in SHIFTS:
-                                    st.session_state.daily_shifts[name][d] = val
+                                elif val in ['NDD', 'ND-D', '支援白']: val = 'ND-D'
+                                elif val in ['NDE', 'ND-E', '支援小']: val = 'ND-E'
+                                elif val in ['NDN', 'ND-N', '支援大夜']: val = 'ND-N'
+                                if val in SHIFTS: st.session_state.daily_shifts[name][d] = val
                     
                     if not_found_names: st.error(f"🚨 警告！Excel 裡這些名字對不上：{', '.join(not_found_names)}")
                     else: st.success("✅ 匯入成功！")
