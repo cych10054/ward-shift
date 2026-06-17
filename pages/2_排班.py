@@ -131,32 +131,59 @@ with st.sidebar:
             if st.button("🚀 執行智慧匯入", use_container_width=True):
                 try:
                     df_in = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-                    df_in.columns = df_in.columns.astype(str).str.strip(); df_in = df_in.fillna("")
+                    
+                    # 1. 自動尋找標題列 (防呆：避免第一列是醫院大標題或空白)
+                    if not any('姓名' in str(c) for c in df_in.columns):
+                        for idx, r_vals in df_in.iterrows():
+                            if any('姓名' in str(v) for v in r_vals.values):
+                                df_in.columns = r_vals.astype(str).str.strip()
+                                df_in = df_in.iloc[idx+1:]
+                                break
+                                
+                    df_in.columns = df_in.columns.astype(str).str.strip()
+                    df_in = df_in.fillna("")
+                    
+                    # 2. 模糊配對欄位名稱 (不管叫「上月」還是「上月最後班」都抓得到)
+                    cols = df_in.columns.tolist()
+                    name_col = next((c for c in cols if '姓名' in c), "姓名")
+                    prop_col = next((c for c in cols if '屬性' in c), None)
+                    last_col = next((c for c in cols if '上月' in c), None)
+                    streak_col = next((c for c in cols if '天數' in c or '連上' in c), None)
+
                     for index, row in df_in.iterrows():
-                        name = str(row.get("姓名", "")).strip()
+                        name = str(row.get(name_col, "")).strip()
                         if not name or "星期" in name or "日期" in name or "計" in name or "組" in name: continue 
                         if name not in all_staff: continue 
                         
-                        prop_col = "屬性" if "屬性" in df_in.columns else None
+                        # 3. 屬性匯入 (如果是空白，就保留網頁原本的設定，不覆蓋)
                         if prop_col:
                             fv = str(row[prop_col]).strip().upper()
-                            new_fix = "新人 (純白班)" if any(x in fv for x in ['新', '純白']) else ("固定白 (D)" if any(x in fv for x in ['D', '白']) else ("固定小 (E)" if any(x in fv for x in ['E', '小']) else ("固定大 (N)" if any(x in fv for x in ['N', '大']) else "無 (混合)")))
-                            st.session_state.fixed[name] = new_fix
+                            if fv: # 有填寫才覆蓋
+                                new_fix = "新人 (純白班)" if any(x in fv for x in ['新', '純白']) else ("固定白 (D)" if any(x in fv for x in ['D', '白']) else ("固定小 (E)" if any(x in fv for x in ['E', '小']) else ("固定大 (N)" if any(x in fv for x in ['N', '大']) else "無 (混合)")))
+                                st.session_state.fixed[name] = new_fix
                         
-                        last_col = "上月最後班" if "上月最後班" in df_in.columns else None
+                        # 4. 上月最後班匯入
                         if last_col:
                             lv = str(row[last_col]).strip().upper()
-                            new_lv = 'Off' if any(x in lv for x in ['OFF', '休', '0', 'O']) else ('D' if 'D' in lv else ('L' if 'L' in lv else ('E' if 'E' in lv else ('N' if 'N' in lv else 'Off'))))
-                            st.session_state.prev_status[name] = {'shift': new_lv}
+                            if lv: # 有填寫才覆蓋
+                                new_lv = 'Off' if any(x in lv for x in ['OFF', '休', '0', 'O']) else ('D' if 'D' in lv else ('L' if 'L' in lv else ('E' if 'E' in lv else ('N' if 'N' in lv else 'Off'))))
+                                st.session_state.prev_status[name] = {'shift': new_lv}
 
-                        streak_col = "月底連上天數" if "月底連上天數" in df_in.columns else None
+                        # 5. 月底連上天數匯入
                         if streak_col:
-                            try: st.session_state.prev_streak[name] = int(float(str(row[streak_col]).strip()))
-                            except: st.session_state.prev_streak[name] = 0
+                            sv = str(row[streak_col]).strip()
+                            if sv: # 有填寫才覆蓋
+                                try: st.session_state.prev_streak[name] = int(float(sv))
+                                except: pass
                         
+                        # 6. 每日班別匯入
                         st.session_state.daily_shifts[name] = {}
                         for d in range(1, num_days + 1):
-                            val = str(row.get(str(d), row.get(f"{month}/{d}", ""))).strip().upper()
+                            val = ""
+                            if str(d) in cols: val = str(row[str(d)]).strip().upper()
+                            elif f"{month}/{d}" in cols: val = str(row[f"{month}/{d}"]).strip().upper()
+                            elif f"0{month}/{d:02d}" in cols: val = str(row[f"0{month}/{d:02d}"]).strip().upper()
+
                             if val:
                                 if val in ['OFF', '休', '0', 'O', 'OF']: val = 'Off'
                                 elif val in ['48', '4-8']: val = '4-8'
@@ -170,9 +197,8 @@ with st.sidebar:
                                 elif val in ['NDE', 'ND-E', '支援小']: val = 'ND-E'
                                 elif val in ['NDN', 'ND-N', '支援大夜']: val = 'ND-N'
                                 if val in SHIFTS: st.session_state.daily_shifts[name][d] = val
-                    st.success("✅ 匯入成功！"); st.rerun()
+                    st.success("✅ 匯入成功！已自動校正欄位名稱與保留空白設定。"); st.rerun()
                 except Exception as e: st.error(f"檔案讀取失敗: {e}")
-
     with st.expander("👥 人員名單設定", expanded=False):
         with st.form("staff_form"):
             new_heme = st.text_area("🩸 血腫組", value="\n".join(heme_staff), height=150)
