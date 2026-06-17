@@ -64,20 +64,50 @@ if 'prev_streak' not in st.session_state: st.session_state.prev_streak = {n: 0 f
 
 with st.sidebar:
     st.header("⚙️ 排班系統控制台")
-    year = st.number_input("年份", 2025, 2030, 2026)
-    month = st.number_input("月份", 1, 12, 6) 
+    year = st.number_input("年份", 2025, 2030, 2026, key="ctrl_year")
+    month = st.number_input("月份", 1, 12, 6, key="ctrl_month") 
     _, num_days = calendar.monthrange(year, month)
     
     with st.expander("👥 每日人力需求調整", expanded=True):
         tab_h, tab_p = st.tabs(["🩸 血腫組", "🕊️ 安寧組"])
         with tab_h:
-            c1, c2, c3, c4 = st.columns(4); h_wd_d = c1.number_input("平D", 0, 10, 2); h_wd_e = c2.number_input("平E", 0, 10, 1); h_wd_n = c3.number_input("平N", 0, 10, 1); h_wd_48 = c4.number_input("平4-8", 0, 10, 1)
-            c1, c2, c3, c4 = st.columns(4); h_sa_d = c1.number_input("六D", 0, 10, 1); h_sa_e = c2.number_input("六E", 0, 10, 1); h_sa_n = c3.number_input("六N", 0, 10, 1); h_sa_812 = c4.number_input("六8-12", 0, 10, 1)
-            c1, c2, c3 = st.columns(3); h_su_d = c1.number_input("日D ", 0, 10, 1); h_su_e = c2.number_input("日E ", 0, 10, 1); h_su_n = c3.number_input("日N ", 0, 10, 1)
+            c1, c2, c3, c4 = st.columns(4)
+            h_wd_d = c1.number_input("平D", 0, 10, 2, key="h_wd_d")
+            h_wd_e = c2.number_input("平E", 0, 10, 1, key="h_wd_e")
+            h_wd_n = c3.number_input("平N", 0, 10, 1, key="h_wd_n")
+            h_wd_48 = c4.number_input("平4-8", 0, 10, 1, key="h_wd_48")
+            
+            c1, c2, c3, c4 = st.columns(4)
+            h_sa_d = c1.number_input("六D", 0, 10, 1, key="h_sa_d")
+            h_sa_e = c2.number_input("六E", 0, 10, 1, key="h_sa_e")
+            h_sa_n = c3.number_input("六N", 0, 10, 1, key="h_sa_n")
+            h_sa_812 = c4.number_input("六8-12", 0, 10, 1, key="h_sa_812")
+            
+            c1, c2, c3 = st.columns(3)
+            h_su_d = c1.number_input("日D", 0, 10, 1, key="h_su_d")
+            h_su_e = c2.number_input("日E", 0, 10, 1, key="h_su_e")
+            h_su_n = c3.number_input("日N", 0, 10, 1, key="h_su_n")
+            
         with tab_p:
-            c1, c2, c3, c4, c5 = st.columns(5); p_mth_d = c1.number_input("平D", 0, 10, 4); p_mth_e = c2.number_input("平E", 0, 10, 2); p_mth_n = c3.number_input("平N", 0, 10, 2); p_mth_48 = c4.number_input("平4-8", 0, 10, 1); p_mth_18 = c5.number_input("平1-8", 0, 10, 0)
-            c1, c2, c3, c4 = st.columns(4); p_f_d = c1.number_input("五D", 0, 10, 4); p_f_e = c2.number_input("五E", 0, 10, 2); p_f_n = c3.number_input("五N", 0, 10, 2); p_f_18 = c4.number_input("五1-8", 0, 10, 1)
-            c1, c2, c3 = st.columns(3); p_we_d = c1.number_input("假D ", 0, 10, 3); p_we_e = c2.number_input("假E ", 0, 10, 2); p_we_n = c3.number_input("假N ", 0, 10, 2)
+            c1, c2, c3, c4, c5 = st.columns(5)
+            p_mth_d = c1.number_input("平D", 0, 10, 4, key="p_mth_d")
+            p_mth_e = c2.number_input("平E", 0, 10, 2, key="p_mth_e")
+            p_mth_n = c3.number_input("平N", 0, 10, 2, key="p_mth_n")
+            p_mth_48 = c4.number_input("平4-8", 0, 10, 1, key="p_mth_48")
+            p_mth_18 = c5.number_input("平1-8", 0, 10, 0, key="p_mth_18")
+            
+            c1, c2, c3, c4 = st.columns(4)
+            p_f_d = c1.number_input("五D", 0, 10, 4, key="p_f_d")
+            p_f_e = c2.number_input("五E", 0, 10, 2, key="p_f_e")
+            p_f_n = c3.number_input("五N", 0, 10, 2, key="p_f_n")
+            p_f_18 = c4.number_input("五1-8", 0, 10, 1, key="p_f_18")
+            
+            c1, c2, c3 = st.columns(3)
+            p_we_d = c1.number_input("假D", 0, 10, 3, key="p_we_d")
+            p_we_e = c2.number_input("假E", 0, 10, 2, key="p_we_e")
+            p_we_n = c3.number_input("假N", 0, 10, 2, key="p_we_n")
+            
+    with st.expander("📁 Excel 智慧匯入/匯出", expanded=False): 0, 10, 2)
     
     with st.expander("📁 Excel 智慧匯入/匯出", expanded=False):
         template_data = []
