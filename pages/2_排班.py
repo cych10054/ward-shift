@@ -18,7 +18,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 支援班 + 預覽)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 支援班 + 分段人力)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -104,23 +104,44 @@ with st.sidebar:
             h_su_n = c3.number_input("N ", 0, 10, 1, key="h_su_n")
 
         with tab_p:
-            st.write("【平日 (週一 ~ 週四)】")
-            c1, c2, c3 = st.columns(3)
-            p_mth_d = c1.number_input("D", 0, 10, 4, key="p_mth_d")
-            p_mth_e = c2.number_input("E", 0, 10, 2, key="p_mth_e")
-            p_mth_n = c3.number_input("N", 0, 10, 2, key="p_mth_n")
-            c4, c5, c6 = st.columns(3)
-            p_mth_48 = c4.number_input("4-8", 0, 10, 1, key="p_mth_48")
-            p_mth_18 = c5.number_input("1-8", 0, 10, 0, key="p_mth_18")
+            p_split_enable = st.checkbox("🔄 啟用【平日】分段人力切換 (如: 10號換編制)")
             
-            st.write("【週五】")
-            c1, c2, c3, c4 = st.columns(4)
-            p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
-            p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
-            p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
-            p_f_18 = c4.number_input("1-8", 0, 10, 1, key="p_f_18")
+            if p_split_enable:
+                p_split_day = st.number_input("設定切換日期 (此日開始套用新設定)", 2, 31, 10)
+                
+                st.markdown(f"**📌 1 號 ~ {p_split_day-1} 號 (平日)**")
+                c1, c2, c3, c4, c5 = st.columns(5)
+                p_mth_d_1 = c1.number_input("D", 0, 10, 3, key="p_d1")
+                p_mth_e_1 = c2.number_input("E", 0, 10, 2, key="p_e1")
+                p_mth_n_1 = c3.number_input("N", 0, 10, 2, key="p_n1")
+                p_mth_48_1 = c4.number_input("4-8", 0, 10, 0, key="p_48_1")
+                p_mth_18_1 = c5.number_input("1-8", 0, 10, 1, key="p_18_1")
+
+                st.markdown(f"**📌 {p_split_day} 號 ~ 月底 (平日)**")
+                c1, c2, c3, c4, c5 = st.columns(5)
+                p_mth_d_2 = c1.number_input("D", 0, 10, 4, key="p_d2")
+                p_mth_e_2 = c2.number_input("E", 0, 10, 2, key="p_e2")
+                p_mth_n_2 = c3.number_input("N", 0, 10, 2, key="p_n2")
+                p_mth_48_2 = c4.number_input("4-8", 0, 10, 1, key="p_48_2")
+                p_mth_18_2 = c5.number_input("1-8", 0, 10, 0, key="p_18_2")
+            else:
+                st.write("【平日 (週一 ~ 週四)】")
+                c1, c2, c3 = st.columns(3)
+                p_mth_d = c1.number_input("D", 0, 10, 4, key="p_mth_d")
+                p_mth_e = c2.number_input("E", 0, 10, 2, key="p_mth_e")
+                p_mth_n = c3.number_input("N", 0, 10, 2, key="p_mth_n")
+                c4, c5, c6 = st.columns(3)
+                p_mth_48 = c4.number_input("4-8", 0, 10, 1, key="p_mth_48")
+                p_mth_18 = c5.number_input("1-8", 0, 10, 0, key="p_mth_18")
+                
+                st.write("【週五】")
+                c1, c2, c3, c4 = st.columns(4)
+                p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
+                p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
+                p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
+                p_f_18 = c4.number_input("1-8", 0, 10, 1, key="p_f_18")
             
-            st.write("【週末 / 國定假日】")
+            st.write("【週末 / 國定假日】 (不受分段影響)")
             c1, c2, c3 = st.columns(3)
             p_we_d = c1.number_input("D ", 0, 10, 3, key="p_we_d")
             p_we_e = c2.number_input("E ", 0, 10, 2, key="p_we_e")
@@ -172,7 +193,7 @@ with st.sidebar:
                 else: worksheet.set_column(col_idx, col_idx, 6, weekday_format)
             worksheet.freeze_panes(2, 4)
             
-        st.download_button("📥 下載 Excel 預班表", output_template.getvalue(), f"{year}年{month}月_預班表.xlsx", type="primary", use_container_width=True)
+        st.download_button("📥 下載 Excel 預班表", output_template.getvalue(), f"{year}年{month}月_打碼預班表.xlsx", type="primary", use_container_width=True)
         
         st.write("---")
         st.write("**第二步：上傳排好的 Excel**")
@@ -353,7 +374,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (100% 嚴格邏輯)"):
+        with st.spinner("神經網路運算中... (支援中場切換)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -525,6 +546,7 @@ with tab_run:
                 is_holiday = (d in holiday_dates)
                 is_weekday = (wd < 5) 
                 
+                # 🩸 血腫組人力需求
                 if wd < 5 and not is_holiday:
                     if h_wd_d > 0: add_exact_demand(heme_staff, d, [1], h_wd_d)
                     if h_wd_e > 0: add_exact_demand(heme_staff, d, [2], h_wd_e)
@@ -540,22 +562,31 @@ with tab_run:
                     if h_su_e > 0: add_exact_demand(heme_staff, d, [2], h_su_e)
                     if h_su_n > 0: add_exact_demand(heme_staff, d, [3], h_su_n)
 
-                if wd < 4 and not is_holiday:
-                    if p_mth_d > 0: add_exact_demand(pall_staff, d, [1], p_mth_d)
-                    if p_mth_e > 0: add_exact_demand(pall_staff, d, [2], p_mth_e)
-                    if p_mth_n > 0: add_exact_demand(pall_staff, d, [3], p_mth_n)
-                    if p_mth_48 > 0: add_exact_demand(pall_staff, d, [5], p_mth_48)
-                    if p_mth_18 > 0: add_exact_demand(pall_staff, d, [7], p_mth_18)
-                elif wd == 4 and not is_holiday:
-                    if p_f_d > 0: add_exact_demand(pall_staff, d, [1], p_f_d)
-                    if p_f_e > 0: add_exact_demand(pall_staff, d, [2], p_f_e)
-                    if p_f_n > 0: add_exact_demand(pall_staff, d, [3], p_f_n)
-                    if p_f_18 > 0: add_exact_demand(pall_staff, d, [7], p_f_18)
-                else:
+                # 🕊️ 安寧組人力需求 (包含分段切換邏輯)
+                if is_weekday and not is_holiday:
+                    if p_split_enable:
+                        req_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
+                        req_e  = p_mth_e_1  if d < p_split_day else p_mth_e_2
+                        req_n  = p_mth_n_1  if d < p_split_day else p_mth_n_2
+                        req_48 = p_mth_48_1 if d < p_split_day else p_mth_48_2
+                        req_18 = p_mth_18_1 if d < p_split_day else p_mth_18_2
+                    else:
+                        if wd < 4:
+                            req_d, req_e, req_n, req_48, req_18 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_18
+                        else:
+                            req_d, req_e, req_n, req_48, req_18 = p_f_d, p_f_e, p_f_n, 0, p_f_18
+                            
+                    if req_d > 0:  add_exact_demand(pall_staff, d, [1], req_d)
+                    if req_e > 0:  add_exact_demand(pall_staff, d, [2], req_e)
+                    if req_n > 0:  add_exact_demand(pall_staff, d, [3], req_n)
+                    if req_48 > 0: add_exact_demand(pall_staff, d, [5], req_48)
+                    if req_18 > 0: add_exact_demand(pall_staff, d, [7], req_18)
+                else: # 週末與國定假日
                     if p_we_d > 0: add_exact_demand(pall_staff, d, [1], p_we_d)
                     if p_we_e > 0: add_exact_demand(pall_staff, d, [2], p_we_e)
                     if p_we_n > 0: add_exact_demand(pall_staff, d, [3], p_we_n)
 
+                # Leader 防護網
                 if is_weekday:
                     for n in active_staff:
                         if n not in valid_seniors and st.session_state.daily_shifts.get(n, {}).get(d) != 'L':
@@ -632,7 +663,7 @@ with tab_run:
                     st.success(f"✅ 完美報表產出！請滑動下方表格預覽，或下載 Excel！")
                 
                 excel_data = []
-                ui_display_rows = [] # 恢復互動式表格資料容器
+                ui_display_rows = [] 
                 ui_columns = ['組別', '姓名', '屬性'] + [str(d) for d in range(1, num_days+1)] + ['OFF', 'N', 'E']
                 
                 date_row = ['姓名', '屬性', '上月', '天數'] + [f"{month}/{d}" for d in range(1, num_days+1)] + ['OFF', 'N', 'E', '包班']
@@ -669,7 +700,7 @@ with tab_run:
                                         break
                             row_shifts.append(assigned)
                             
-                            # 支援班不列入單位的可用人力計算 (因為她們出去外單位幫忙了)
+                            # 支援班不列入單位的可用人力計算 (因為她們出去幫忙了)
                             if n != hn_name:
                                 if assigned == 'N': 
                                     grp_n[d_day_idx] += 1; global_n[d_day_idx] += 1
@@ -687,9 +718,9 @@ with tab_run:
                         streak = st.session_state.prev_streak.get(n, 0)
                         
                         off_count = row_shifts.count('Off')
-                        # 夜班統計整合：實地上 N 班 + 外單位支-N 班皆屬於夜班費計算範疇
+                        # 夜班統計整合：納入 支-N 班
                         n_count = row_shifts.count('N') + row_shifts.count('支-N')
-                        # 小夜時數統計整合：納入支-E 的加總計算
+                        # 小夜時數統計整合：納入 支-E 班
                         e_count = fmt_num(row_shifts.count('E') + row_shifts.count('12-8') + row_shifts.count('支-E') + 0.5*(row_shifts.count('4-8') + row_shifts.count('1-8')))
                         
                         b_count = 0
@@ -701,7 +732,7 @@ with tab_run:
                         b_str = fmt_num(b_count) if (b_count > 0 or f_type != "無 (混合)") else '-'
                         
                         excel_data.append([n, f_type, ps, streak] + row_shifts + [off_count, n_count, e_count, b_str])
-                        ui_display_rows.append([short_name, n, f_type] + row_shifts + [off_count, n_count, e_count]) # 寫入 UI 顯示表
+                        ui_display_rows.append([short_name, n, f_type] + row_shifts + [off_count, n_count, e_count])
                     
                     if short_name != '護理長':
                         grp_n_fmt, grp_d_fmt, grp_e_fmt = [fmt_num(x) for x in grp_n], [fmt_num(x) for x in grp_d], [fmt_num(x) for x in grp_e]
@@ -715,7 +746,7 @@ with tab_run:
                 excel_data.append(['全站總計 D', '', '', ''] + global_d_fmt + ['', '', '', ''])
                 excel_data.append(['全站總計 E', '', '', ''] + global_e_fmt + ['', '', '', ''])
                 
-                # --- 互動式預覽表格 (您要求的「可以瀏覽的」) ---
+                # --- 互動式預覽表格 ---
                 st.markdown("### 📊 排班結果總覽 (可左右滑動)")
                 df_ui = pd.DataFrame(ui_display_rows, columns=ui_columns)
                 st.dataframe(df_ui, use_container_width=True, height=500)
