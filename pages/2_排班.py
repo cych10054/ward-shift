@@ -22,7 +22,7 @@ st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 支援班 + 分段人�
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
-DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
+DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
 DEFAULT_HN = '護理長-林O穎'
 
 def load_staff_data():
@@ -115,7 +115,7 @@ with st.sidebar:
                 p_mth_e_1 = c2.number_input("E", 0, 10, 2, key="p_e1")
                 p_mth_n_1 = c3.number_input("N", 0, 10, 2, key="p_n1")
                 p_mth_48_1 = c4.number_input("4-8", 0, 10, 0, key="p_48_1")
-                p_mth_18_1 = c5.number_input("1-8", 0, 10, 1, key="p_18_1")
+                p_mth_128_1 = c5.number_input("12-8", 0, 10, 1, key="p_128_1")
 
                 st.markdown(f"**📌 {p_split_day} 號 ~ 月底 (平日)**")
                 c1, c2, c3, c4, c5 = st.columns(5)
@@ -123,7 +123,7 @@ with st.sidebar:
                 p_mth_e_2 = c2.number_input("E", 0, 10, 2, key="p_e2")
                 p_mth_n_2 = c3.number_input("N", 0, 10, 2, key="p_n2")
                 p_mth_48_2 = c4.number_input("4-8", 0, 10, 1, key="p_48_2")
-                p_mth_18_2 = c5.number_input("1-8", 0, 10, 0, key="p_18_2")
+                p_mth_128_2 = c5.number_input("12-8", 0, 10, 0, key="p_128_2")
             else:
                 st.write("【平日 (週一 ~ 週四)】")
                 c1, c2, c3 = st.columns(3)
@@ -132,14 +132,14 @@ with st.sidebar:
                 p_mth_n = c3.number_input("N", 0, 10, 2, key="p_mth_n")
                 c4, c5, c6 = st.columns(3)
                 p_mth_48 = c4.number_input("4-8", 0, 10, 1, key="p_mth_48")
-                p_mth_18 = c5.number_input("1-8", 0, 10, 0, key="p_mth_18")
+                p_mth_128 = c5.number_input("12-8", 0, 10, 0, key="p_mth_128")
                 
                 st.write("【週五】")
                 c1, c2, c3, c4 = st.columns(4)
                 p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
                 p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
                 p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
-                p_f_18 = c4.number_input("1-8", 0, 10, 1, key="p_f_18")
+                p_f_128 = c4.number_input("12-8", 0, 10, 1, key="p_f_128")
             
             st.write("【週末 / 國定假日】 (不受分段影響)")
             c1, c2, c3 = st.columns(3)
@@ -562,25 +562,25 @@ with tab_run:
                     if h_su_e > 0: add_exact_demand(heme_staff, d, [2], h_su_e)
                     if h_su_n > 0: add_exact_demand(heme_staff, d, [3], h_su_n)
 
-                # 🕊️ 安寧組人力需求 (包含分段切換邏輯)
+                # 🕊️ 安寧組人力需求 (包含分段切換邏輯與 12-8 需求設定)
                 if is_weekday and not is_holiday:
                     if p_split_enable:
                         req_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
                         req_e  = p_mth_e_1  if d < p_split_day else p_mth_e_2
                         req_n  = p_mth_n_1  if d < p_split_day else p_mth_n_2
                         req_48 = p_mth_48_1 if d < p_split_day else p_mth_48_2
-                        req_18 = p_mth_18_1 if d < p_split_day else p_mth_18_2
+                        req_128 = p_mth_128_1 if d < p_split_day else p_mth_128_2
                     else:
                         if wd < 4:
-                            req_d, req_e, req_n, req_48, req_18 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_18
+                            req_d, req_e, req_n, req_48, req_128 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_128
                         else:
-                            req_d, req_e, req_n, req_48, req_18 = p_f_d, p_f_e, p_f_n, 0, p_f_18
+                            req_d, req_e, req_n, req_48, req_128 = p_f_d, p_f_e, p_f_n, 0, p_f_128
                             
                     if req_d > 0:  add_exact_demand(pall_staff, d, [1], req_d)
                     if req_e > 0:  add_exact_demand(pall_staff, d, [2], req_e)
                     if req_n > 0:  add_exact_demand(pall_staff, d, [3], req_n)
                     if req_48 > 0: add_exact_demand(pall_staff, d, [5], req_48)
-                    if req_18 > 0: add_exact_demand(pall_staff, d, [7], req_18)
+                    if req_128 > 0: add_exact_demand(pall_staff, d, [4], req_128) # 索引 4 是 12-8
                 else: # 週末與國定假日
                     if p_we_d > 0: add_exact_demand(pall_staff, d, [1], p_we_d)
                     if p_we_e > 0: add_exact_demand(pall_staff, d, [2], p_we_e)
