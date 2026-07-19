@@ -18,11 +18,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 支援班 + 分段人力)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 支援班 + 完美選單)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
-DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
+DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
 DEFAULT_HN = '護理長-林O穎'
 
 def load_staff_data():
@@ -59,8 +59,7 @@ pall_seniors = staff_data.get('pall_seniors', [])
 active_staff = heme_staff + pall_staff 
 all_staff = active_staff + [hn_name]
 
-# 加入 支-D, 支-E, 支-N 支援班
-SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', 'M', '公', 'L', '支-D', '支-E', '支-N']
+SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', '1-8', 'M', '公', 'L', '支-D', '支-E', '支-N']
 
 def fmt_num(n):
     return int(n) if n == int(n) else n
@@ -115,7 +114,7 @@ with st.sidebar:
                 p_mth_e_1 = c2.number_input("E", 0, 10, 2, key="p_e1")
                 p_mth_n_1 = c3.number_input("N", 0, 10, 2, key="p_n1")
                 p_mth_48_1 = c4.number_input("4-8", 0, 10, 0, key="p_48_1")
-                p_mth_18_1 = c5.number_input("12-8", 0, 10, 1, key="p_18_1")
+                p_mth_128_1 = c5.number_input("12-8", 0, 10, 1, key="p_128_1")
 
                 st.markdown(f"**📌 {p_split_day} 號 ~ 月底 (平日)**")
                 c1, c2, c3, c4, c5 = st.columns(5)
@@ -123,7 +122,7 @@ with st.sidebar:
                 p_mth_e_2 = c2.number_input("E", 0, 10, 2, key="p_e2")
                 p_mth_n_2 = c3.number_input("N", 0, 10, 2, key="p_n2")
                 p_mth_48_2 = c4.number_input("4-8", 0, 10, 1, key="p_48_2")
-                p_mth_18_2 = c5.number_input("12-8", 0, 10, 0, key="p_18_2")
+                p_mth_128_2 = c5.number_input("12-8", 0, 10, 0, key="p_128_2")
             else:
                 st.write("【平日 (週一 ~ 週四)】")
                 c1, c2, c3 = st.columns(3)
@@ -132,14 +131,14 @@ with st.sidebar:
                 p_mth_n = c3.number_input("N", 0, 10, 2, key="p_mth_n")
                 c4, c5, c6 = st.columns(3)
                 p_mth_48 = c4.number_input("4-8", 0, 10, 1, key="p_mth_48")
-                p_mth_18 = c5.number_input("12-8", 0, 10, 0, key="p_mth_18")
+                p_mth_128 = c5.number_input("12-8", 0, 10, 0, key="p_mth_128")
                 
                 st.write("【週五】")
                 c1, c2, c3, c4 = st.columns(4)
                 p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
                 p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
                 p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
-                p_f_18 = c4.number_input("12-8", 0, 10, 1, key="p_f_18")
+                p_f_128 = c4.number_input("12-8", 0, 10, 1, key="p_f_128")
             
             st.write("【週末 / 國定假日】 (不受分段影響)")
             c1, c2, c3 = st.columns(3)
@@ -306,17 +305,26 @@ with st.sidebar:
                 st.success("Leader 名單已儲存！")
                 st.rerun()
 
+    st.write("---")
     st.write("⚖️ **核心排班規則設定**")
-    allowed_off_gap = st.slider("⚖️ 允許休假天數最大落差 (增加彈性)", 0, 10, 4)
-    allow_iso_work = st.checkbox("🌟 允許單日上班 (增加排班彈性)", value=True)
-    shift_consistency_weight = st.slider("🔀 班別一致性 (同段班不換班)", 0, 1000, 500)
-    anti_frag_weight = st.slider("🛡️ 護肝指數 (盡量避免單日休假)", 0, 500, 200)
     
-    soft_max_streak = st.slider("💡 期望最多連上天數", 3, 7, 4)
-    hard_max_streak = st.slider("🛑 絕對極限連上天數", 3, 7, 5)
+    # 新增的休假天數上下限設定
+    col1, col2 = st.columns(2)
+    min_off_days = col1.number_input("📉 最少休假天數", 0, 31, 6)
+    max_off_days = col2.number_input("📈 最多休假天數", 0, 31, 10)
     
-    min_bonus_days = st.number_input("💰 包班最低達標天數 (鐵血保證)", 1, 31, 15)
-    holiday_dates = st.multiselect("勾選國定假日", list(range(1, num_days+1)))
+    # 重新編排順序，加入鐵血固定提示
+    allowed_off_gap = st.slider("⚖️ 1. 允許休假天數最大落差 (增加彈性)", 0, 10, 4)
+    allow_iso_work = st.checkbox("🌟 2. 允許單日上班 (增加排班彈性)", value=True)
+    shift_consistency_weight = st.slider("🔀 3. 班別一致性 (同段班不換班)", 0, 1000, 500)
+    anti_frag_weight = st.slider("🛡️ 4. 護肝指數 (盡量避免單日休假)", 0, 500, 200)
+    soft_max_streak = st.slider("💡 5. 期望最多連上天數", 3, 7, 4)
+    hard_max_streak = st.slider("🛑 6. 絕對極限連上天數", 3, 7, 5)
+    
+    st.info("🎯 7. 包班最低達標天數 (鐵血保證)：已由系統固定鎖死為 15 天")
+    min_bonus_days = 15 # 在背景鐵血鎖定
+    
+    holiday_dates = st.multiselect("🎈 8. 勾選國定假日", list(range(1, num_days+1)))
 
 # --- 5. 人員卡片 ---
 def render_staff_card(name, year, month, is_hn=False):
@@ -374,7 +382,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (支援中場切換)"):
+        with st.spinner("神經網路運算中... (支援中場切換 & 防堵漏洞 & 休假限制)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -408,6 +416,13 @@ with tab_run:
                         model.Add(work[(n, d, SHIFTS.index('支-D'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('支-E'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('支-N'))] == 0)
+
+                    # 🔥 【漏洞修補】阻斷兩組專屬班別互串：血腫不上12-8和1-8，安寧不上8-12
+                    if n in heme_staff and manual_shift not in ['12-8', '1-8']:
+                        model.Add(work[(n, d, SHIFTS.index('12-8'))] == 0)
+                        model.Add(work[(n, d, SHIFTS.index('1-8'))] == 0)
+                    if n in pall_staff and manual_shift != '8-12':
+                        model.Add(work[(n, d, SHIFTS.index('8-12'))] == 0)
 
                 # 🛑 5.8 嚴格跨月規則
                 last_shift = st.session_state.prev_status.get(n, {}).get('shift', 'Off')
@@ -562,25 +577,25 @@ with tab_run:
                     if h_su_e > 0: add_exact_demand(heme_staff, d, [2], h_su_e)
                     if h_su_n > 0: add_exact_demand(heme_staff, d, [3], h_su_n)
 
-                # 🕊️ 安寧組人力需求 (包含分段切換邏輯)
+                # 🕊️ 安寧組人力需求 (包含分段切換邏輯與 12-8 需求設定)
                 if is_weekday and not is_holiday:
                     if p_split_enable:
                         req_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
                         req_e  = p_mth_e_1  if d < p_split_day else p_mth_e_2
                         req_n  = p_mth_n_1  if d < p_split_day else p_mth_n_2
                         req_48 = p_mth_48_1 if d < p_split_day else p_mth_48_2
-                        req_18 = p_mth_18_1 if d < p_split_day else p_mth_18_2
+                        req_128 = p_mth_128_1 if d < p_split_day else p_mth_128_2
                     else:
                         if wd < 4:
-                            req_d, req_e, req_n, req_48, req_18 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_18
+                            req_d, req_e, req_n, req_48, req_128 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_128
                         else:
-                            req_d, req_e, req_n, req_48, req_18 = p_f_d, p_f_e, p_f_n, 0, p_f_18
+                            req_d, req_e, req_n, req_48, req_128 = p_f_d, p_f_e, p_f_n, 0, p_f_128
                             
                     if req_d > 0:  add_exact_demand(pall_staff, d, [1], req_d)
                     if req_e > 0:  add_exact_demand(pall_staff, d, [2], req_e)
                     if req_n > 0:  add_exact_demand(pall_staff, d, [3], req_n)
                     if req_48 > 0: add_exact_demand(pall_staff, d, [5], req_48)
-                    if req_18 > 0: add_exact_demand(pall_staff, d, [7], req_18)
+                    if req_128 > 0: add_exact_demand(pall_staff, d, [4], req_128) # 索引 4 是 12-8
                 else: # 週末與國定假日
                     if p_we_d > 0: add_exact_demand(pall_staff, d, [1], p_we_d)
                     if p_we_e > 0: add_exact_demand(pall_staff, d, [2], p_we_e)
@@ -603,10 +618,22 @@ with tab_run:
                         if st.session_state.daily_shifts.get(n, {}).get(d) != 'L':
                             model.Add(work[(n, d, 10)] == 0)
 
+            # 🔥 加入【每月最少/最多休假天數】限制，並加入預排假防呆保護
             max_off_var = model.NewIntVar(0, 31, 'max_off')
             min_off_var = model.NewIntVar(0, 31, 'min_off')
             for n in active_staff:
+                # 統計該人員本月總共放幾天假
                 offs = sum(work[(n,d,0)] for d in range(1, num_days+1))
+                
+                # 計算該人員「已經被預排」的休假天數 (防止預排假超過上限導致系統崩潰)
+                preset_offs = sum(1 for d, s in st.session_state.daily_shifts.get(n, {}).items() if s == 'Off')
+                personal_min_off = max(min_off_days, preset_offs)
+                personal_max_off = max(max_off_days, preset_offs)
+                
+                model.Add(offs >= personal_min_off)
+                model.Add(offs <= personal_max_off)
+                
+                # 保留原有計算差距的機制 (用於優化排班公平性)
                 model.Add(max_off_var >= offs)
                 model.Add(min_off_var <= offs)
             
@@ -801,4 +828,4 @@ with tab_run:
                     ws_main.freeze_panes(2, 4)
 
                 st.download_button("📥 下載嚴格邏輯版 Excel (純淨總表)", output.getvalue(), f"{year}年{month}月_排班表.xlsx", type="primary", use_container_width=True)
-            else: st.error("❌ 無解！(跨月防護或預排假導致嚴重衝突，請稍微放寬條件)")
+            else: st.error("❌ 無解！(跨月防護或休假天數限制導致衝突，請嘗試放寬休假天數，或將部分固定班改為混合班)")
