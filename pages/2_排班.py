@@ -18,7 +18,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 支援班 + 屬性切換)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 兩班制綜合班)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -59,7 +59,7 @@ pall_seniors = staff_data.get('pall_seniors', [])
 active_staff = heme_staff + pall_staff 
 all_staff = active_staff + [hn_name]
 
-# 班別清單 (維持標準 14 種)
+# 班別清單 
 SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', '1-8', 'M', '公', 'L', '支-D', '支-E', '支-N']
 
 def fmt_num(n):
@@ -67,7 +67,7 @@ def fmt_num(n):
 
 # --- 3. 狀態初始化 ---
 if 'daily_shifts' not in st.session_state: st.session_state.daily_shifts = {n: {} for n in all_staff}
-if 'fixed' not in st.session_state: st.session_state.fixed = {n: "無 (混合)" for n in all_staff}
+if 'fixed' not in st.session_state: st.session_state.fixed = {n: "無 (三班混合)" for n in all_staff}
 if 'prev_status' not in st.session_state: st.session_state.prev_status = {n: {'shift': 'Off'} for n in all_staff}
 if 'prev_streak' not in st.session_state: st.session_state.prev_streak = {n: 0 for n in all_staff}
 
@@ -163,7 +163,7 @@ with st.sidebar:
         for n in all_staff:
             row = {
                 "姓名": n,
-                "屬性": st.session_state.fixed.get(n, "無 (混合)"),
+                "屬性": st.session_state.fixed.get(n, "無 (三班混合)"),
                 "上月最後班": st.session_state.prev_status.get(n, {}).get("shift", "Off"),
                 "月底連上天數": st.session_state.prev_streak.get(n, 0)
             }
@@ -216,16 +216,19 @@ with st.sidebar:
                             not_found_names.append(name)
                             continue 
                             
-                        # 屬性讀取，加入 "前D後E"
                         prop_col = "屬性" if "屬性" in df_in.columns else ("班別" if "班別" in df_in.columns else ("固定班" if "固定班" in df_in.columns else None))
                         if prop_col:
                             fv = str(row[prop_col]).strip().upper()
+                            # 加入兩班制的屬性轉換
                             if any(x in fv for x in ['新', '純白']): new_fix = "新人 (純白班)"
                             elif '前D後E' in fv or '前白後小' in fv: new_fix = "前D後E"
+                            elif any(x in fv for x in ['D+E', 'DE混合', '白小', '混合 (D+E)']): new_fix = "混合 (D+E)"
+                            elif any(x in fv for x in ['E+N', 'EN混合', '小大', '混合 (E+N)']): new_fix = "混合 (E+N)"
+                            elif any(x in fv for x in ['D+N', 'DN混合', '白大', '混合 (D+N)']): new_fix = "混合 (D+N)"
                             elif any(x in fv for x in ['D', '白']): new_fix = "固定白 (D)"
                             elif any(x in fv for x in ['E', '小']): new_fix = "固定小 (E)"
                             elif any(x in fv for x in ['N', '大']): new_fix = "固定大 (N)"
-                            else: new_fix = "無 (混合)"
+                            else: new_fix = "無 (三班混合)"
                             st.session_state.fixed[name] = new_fix
                             st.session_state[f"fix_{name}"] = new_fix 
                         
@@ -273,7 +276,9 @@ with st.sidebar:
                                 elif val in ['支-D', '支援白', '支D', 'ND-D', 'NDD']: val = '支-D'
                                 elif val in ['支-E', '支援小', '支E', 'ND-E', 'NDE']: val = '支-E'
                                 elif val in ['支-N', '支援大夜', '支N', '支大夜', 'ND-N', 'NDN']: val = '支-N'
-                                if val in SHIFTS:
+                                elif val in ['D/E', 'DE', 'D或E']: val = 'D/E' 
+                                
+                                if val in SHIFTS or val == 'D/E':
                                     st.session_state.daily_shifts[name][d] = val
                     
                     if not_found_names: st.error(f"🚨 警告！Excel 裡這些名字對不上：{', '.join(not_found_names)}")
@@ -329,7 +334,7 @@ with st.sidebar:
 
 # --- 5. 人員卡片 ---
 def render_staff_card(name, year, month, is_hn=False):
-    fix_status = st.session_state.fixed.get(name, "無 (混合)")
+    fix_status = st.session_state.fixed.get(name, "無 (三班混合)")
     is_leader = name in heme_seniors or name in pall_seniors
     base_icon = "🌟" if is_leader else "🟢"
     icon = "👑" if is_hn else ("🐣" if "新" in fix_status else ("☀️" if "白" in fix_status else ("🌙" if "小" in fix_status else ("✨" if "大" in fix_status else base_icon))))
@@ -347,11 +352,11 @@ def render_staff_card(name, year, month, is_hn=False):
                     st.session_state[f"streak_{name}"] = st.session_state.prev_streak.get(name, 0)
                 st.session_state.prev_streak[name] = st.number_input("月底連上天數", 0, 15, key=f"streak_{name}")
             with c3:
-                # 這裡加入了【前D後E】屬性
-                opts = ["無 (混合)", "固定白 (D)", "固定小 (E)", "固定大 (N)", "新人 (純白班)", "前D後E"]
+                # 擴充了兩班制的屬性選項
+                opts = ["無 (三班混合)", "混合 (D+E)", "混合 (E+N)", "混合 (D+N)", "固定白 (D)", "固定小 (E)", "固定大 (N)", "新人 (純白班)", "前D後E"]
                 if f"fix_{name}" not in st.session_state:
-                    cur = st.session_state.fixed.get(name, "無 (混合)")
-                    st.session_state[f"fix_{name}"] = cur if cur in opts else "無 (混合)"
+                    cur = st.session_state.fixed.get(name, "無 (三班混合)")
+                    st.session_state[f"fix_{name}"] = cur if cur in opts else "無 (三班混合)"
                 st.session_state.fixed[name] = st.selectbox("本月固定班", opts, key=f"fix_{name}")
 
         st.divider()
@@ -383,8 +388,8 @@ with tab_pall:
     render_staff_card(hn_name, year, month, is_hn=True)
 
 with tab_run:
-    if st.button("🚀 啟提排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (支援中場切換 & 前D後E屬性)"):
+    if st.button("🚀 啟動排班", type="primary", use_container_width=True):
+        with st.spinner("神經網路運算中... (支援 D/E彈性選擇 & 兩班制屬性)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -403,10 +408,13 @@ with tab_run:
                 user_shifts = st.session_state.daily_shifts.get(n, {})
                 f_type = st.session_state.fixed.get(n, "")
                 
-                # 🛑 5.8 嚴格遵守手動排班
+                # 🛑 嚴格遵守手動排班 / 彈性選擇
                 for d, s_val in user_shifts.items():
                     if s_val in SHIFTS:
                         model.Add(work[(n, d, SHIFTS.index(s_val))] == 1)
+                    elif s_val == 'D/E':
+                        allowed_indices = [SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8')]
+                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                 
                 for d in range(1, num_days+1):
                     manual_shift = user_shifts.get(d)
@@ -420,7 +428,7 @@ with tab_run:
                         model.Add(work[(n, d, SHIFTS.index('支-N'))] == 0)
 
                     # 阻斷兩組專屬班別互串
-                    if n in heme_staff and manual_shift not in ['12-8', '1-8']:
+                    if n in heme_staff and manual_shift not in ['12-8', '1-8', 'D/E']:
                         model.Add(work[(n, d, SHIFTS.index('12-8'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('1-8'))] == 0)
                     if n in pall_staff and manual_shift != '8-12':
@@ -434,16 +442,16 @@ with tab_run:
                     elif last_shift in ['D', 'L', '支-D']:
                         model.Add(work[(n, 1, 3)] == 0) 
 
-                # 🔥🔥 全新「前D後E」與 5.8 原始排除邏輯 🔥🔥
+                # 🔥 屬性排除邏輯 (加入新的兩班制限制) 🔥
                 if "白" in f_type and "新" not in f_type:
                     for d in range(1, num_days+1): 
                         if d not in user_shifts:
                             for s_idx in [2, 3, 4, 5, 6, 7]: model.Add(work[(n,d,s_idx)]==0) 
-                elif "小" in f_type:
+                elif "小" in f_type and "混合" not in f_type:
                     for d in range(1, num_days+1): 
                         if d not in user_shifts:
                             for s_idx in [1, 3, 6, 8, 9, 10]: model.Add(work[(n,d,s_idx)]==0) 
-                elif "大" in f_type:
+                elif "大" in f_type and "混合" not in f_type:
                     for d in range(1, num_days+1): 
                         if d not in user_shifts:
                             for s_idx in [1, 2, 4, 5, 6, 7, 8, 9, 10]: model.Add(work[(n,d,s_idx)]==0) 
@@ -452,15 +460,28 @@ with tab_run:
                         if d not in user_shifts:
                             for s_idx in [2, 3, 4, 5, 6, 7, 8, 9, 10]: model.Add(work[(n,d,s_idx)]==0)
                 elif "前D後E" in f_type:
-                    mid_day = num_days // 2 # 自動計算當月一半是幾號 (如: 30的15號, 31的15號)
+                    mid_day = num_days // 2 
                     for d in range(1, num_days+1):
                         if d not in user_shifts:
                             if d <= mid_day:
-                                # 前半個月：視同「固定白」，只允許 Off, D, L, 支-D, 8-12
                                 for s_idx in [2, 3, 4, 5, 7, 8, 9, 12, 13]: model.Add(work[(n,d,s_idx)]==0)
                             else:
-                                # 後半個月：視同「固定小」，只允許 Off, E, 12-8, 4-8, 1-8, 支-E
                                 for s_idx in [1, 3, 6, 8, 9, 10, 11, 13]: model.Add(work[(n,d,s_idx)]==0)
+                elif "混合 (D+E)" in f_type:
+                    for d in range(1, num_days+1):
+                        if d not in user_shifts:
+                            # 白小班：絕對不上大夜
+                            for s_idx in [3, SHIFTS.index('支-N')]: model.Add(work[(n,d,s_idx)]==0)
+                elif "混合 (E+N)" in f_type:
+                    for d in range(1, num_days+1):
+                        if d not in user_shifts:
+                            # 小大班：絕對不上白班、Leader、8-12
+                            for s_idx in [1, 6, 10, SHIFTS.index('支-D')]: model.Add(work[(n,d,s_idx)]==0)
+                elif "混合 (D+N)" in f_type:
+                    for d in range(1, num_days+1):
+                        if d not in user_shifts:
+                            # 白大班：絕對不上小夜系
+                            for s_idx in [2, 4, 5, 7, SHIFTS.index('支-E')]: model.Add(work[(n,d,s_idx)]==0)
 
                 # 班別順序防護
                 for d in range(1, num_days):
@@ -523,11 +544,11 @@ with tab_run:
                             model.AddBoolOr([work[(n, 1, 0)], pen])
                             streak_penalties.append(pen)
 
-                # 包班保證 (前D後E 也受保證)
+                # 包班保證 (固定單一班別者，才有包班保證，混合班沒有強制 15 天限制)
                 allowed_bonus = []
                 if "白" in f_type and "新" not in f_type: allowed_bonus = [1, 10, SHIFTS.index('支-D')]
-                elif "小" in f_type: allowed_bonus = [2, 4, 5, 7, SHIFTS.index('支-E')] 
-                elif "大" in f_type: allowed_bonus = [3, SHIFTS.index('支-N')]
+                elif "固定小" in f_type: allowed_bonus = [2, 4, 5, 7, SHIFTS.index('支-E')] 
+                elif "固定大" in f_type: allowed_bonus = [3, SHIFTS.index('支-N')]
                 elif "新" in f_type: allowed_bonus = [1, 10, SHIFTS.index('支-D')] 
                 elif "前D後E" in f_type: allowed_bonus = [1, 2, 4, 5, 7, 10, SHIFTS.index('支-D'), SHIFTS.index('支-E')]
                 
@@ -591,7 +612,7 @@ with tab_run:
                     if h_su_e > 0: add_exact_demand(heme_staff, d, [2], h_su_e)
                     if h_su_n > 0: add_exact_demand(heme_staff, d, [3], h_su_n)
 
-                # 🕊️ 安寧組人力需求 (包含分段切換邏輯)
+                # 🕊️ 安寧組人力需求
                 if is_weekday and not is_holiday:
                     if p_split_enable:
                         req_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
@@ -631,7 +652,7 @@ with tab_run:
                         if st.session_state.daily_shifts.get(n, {}).get(d) != 'L':
                             model.Add(work[(n, d, 10)] == 0)
 
-            # 休假天數上下限保護
+            # 休假天數保護
             max_off_var = model.NewIntVar(0, 31, 'max_off')
             min_off_var = model.NewIntVar(0, 31, 'min_off')
             for n in active_staff:
@@ -755,7 +776,7 @@ with tab_run:
                                 elif assigned in ['4-8', '1-8']:
                                     grp_e[d_day_idx] += 0.5; global_e[d_day_idx] += 0.5
                         
-                        f_type = st.session_state.fixed.get(n, "無 (混合)")
+                        f_type = st.session_state.fixed.get(n, "無 (三班混合)")
                         ps = st.session_state.prev_status.get(n, {}).get('shift', 'Off')
                         streak = st.session_state.prev_streak.get(n, 0)
                         
@@ -765,12 +786,12 @@ with tab_run:
                         
                         b_count = 0
                         if "白" in f_type and "新" not in f_type: b_count = row_shifts.count('D') + row_shifts.count('L') + 0.5 * row_shifts.count('8-12') + row_shifts.count('支-D')
-                        elif "小" in f_type: b_count = row_shifts.count('E') + row_shifts.count('12-8') + 0.5 * (row_shifts.count('4-8') + row_shifts.count('1-8')) + row_shifts.count('支-E')
-                        elif "大" in f_type: b_count = row_shifts.count('N') + row_shifts.count('支-N')
+                        elif "固定小" in f_type: b_count = row_shifts.count('E') + row_shifts.count('12-8') + 0.5 * (row_shifts.count('4-8') + row_shifts.count('1-8')) + row_shifts.count('支-E')
+                        elif "固定大" in f_type: b_count = row_shifts.count('N') + row_shifts.count('支-N')
                         elif "新" in f_type: b_count = row_shifts.count('D') + row_shifts.count('L') + 0.5 * row_shifts.count('8-12') + row_shifts.count('支-D')
                         elif "前D後E" in f_type: b_count = row_shifts.count('D') + row_shifts.count('L') + 0.5 * row_shifts.count('8-12') + row_shifts.count('支-D') + row_shifts.count('E') + row_shifts.count('12-8') + 0.5 * (row_shifts.count('4-8') + row_shifts.count('1-8')) + row_shifts.count('支-E')
                         
-                        b_str = fmt_num(b_count) if (b_count > 0 or f_type != "無 (混合)") else '-'
+                        b_str = fmt_num(b_count) if (b_count > 0 or f_type != "無 (三班混合)") else '-'
                         
                         excel_data.append([n, f_type, ps, streak] + row_shifts + [off_count, n_count, e_count, b_str])
                         ui_display_rows.append([short_name, n, f_type] + display_row + [off_count, n_count, e_count])
