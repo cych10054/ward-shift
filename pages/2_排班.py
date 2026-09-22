@@ -5,6 +5,7 @@ from ortools.sat.python import cp_model
 import io
 import json
 import os
+from datetime import datetime
 
 st.set_page_config(page_title="護理排班系統 (嚴格邏輯版)", layout="wide")
 
@@ -18,11 +19,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 支援班 + D/E彈性選擇)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 支援班 + 自動跳月)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
-DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏','安寧-潘O菁','安寧-張O嘉', '安寧-沈O叡',  '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
+DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
 DEFAULT_HN = '護理長-林O穎'
 
 def load_staff_data():
@@ -75,8 +76,13 @@ if 'prev_streak' not in st.session_state: st.session_state.prev_streak = {n: 0 f
 with st.sidebar:
     st.header("⚙️ 排班系統控制台")
     
-    year = st.number_input("年份", 2025, 2030, 2026)
-    month = st.number_input("月份", 1, 12, 6) 
+    # 自動抓取當前時間並推算下個月
+    now = datetime.now()
+    next_month = now.month + 1 if now.month < 12 else 1
+    next_month_year = now.year if now.month < 12 else now.year + 1
+    
+    year = st.number_input("年份", 2025, 2035, next_month_year)
+    month = st.number_input("月份", 1, 12, next_month) 
     _, num_days = calendar.monthrange(year, month)
     
     with st.expander("👥 每日人力需求調整", expanded=True):
@@ -387,7 +393,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (支援 D/E彈性選擇)"):
+        with st.spinner("神經網路運算中... (支援 D/E彈性選擇 & 兩班制屬性)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -406,12 +412,11 @@ with tab_run:
                 user_shifts = st.session_state.daily_shifts.get(n, {})
                 f_type = st.session_state.fixed.get(n, "")
                 
-                # 🛑 手動排班 / 彈性選擇
+                # 🛑 嚴格遵守手動排班 / 彈性選擇
                 for d, s_val in user_shifts.items():
                     if s_val in SHIFTS:
                         model.Add(work[(n, d, SHIFTS.index(s_val))] == 1)
                     elif s_val == 'D/E':
-                        # 🔥 彈性選擇加入了 4-8 選項！AI 從這 4 個班別中挑選
                         allowed_indices = [SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), SHIFTS.index('4-8')]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                 
@@ -476,7 +481,7 @@ with tab_run:
                         if d not in user_shifts:
                             for s_idx in [2, 4, 5, 7, SHIFTS.index('支-E')]: model.Add(work[(n,d,s_idx)]==0)
 
-                # 🔥 班別順序防護 (更新：即使手動輸入 D/E，依然要檢查防撞牆，避免 E 接 D)
+                # 班別順序防護
                 for d in range(1, num_days):
                     if d in user_shifts and (d+1) in user_shifts and user_shifts[d] != 'D/E' and user_shifts[d+1] != 'D/E': 
                         continue 
@@ -537,7 +542,7 @@ with tab_run:
                             model.AddBoolOr([work[(n, 1, 0)], pen])
                             streak_penalties.append(pen)
 
-                # 🔥 包班保證 (修正：正確處理 D/E 彈性班別)
+                # 包班保證
                 allowed_bonus = []
                 if "白" in f_type and "新" not in f_type: allowed_bonus = [1, 10, SHIFTS.index('支-D')]
                 elif "固定小" in f_type: allowed_bonus = [2, 4, 5, 7, SHIFTS.index('支-E')] 
@@ -755,7 +760,6 @@ with tab_run:
                                         break
                             row_shifts.append(assigned)
                             
-                            # 針對 D/E 彈性班別標紅顯示
                             if d in user_pre_shifts or (n == hn_name and assigned != 'Off'): 
                                 display_row.append(f"<span style='color:red; font-weight:bold;'>{assigned}</span>")
                             else: 
