@@ -19,11 +19,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 支援班 + 自動跳月)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 新人防撞網)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
-DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-沈O叡', '安寧-張O嘉', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
+DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁', '安寧-張O嘉', '安寧-沈O叡', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
 DEFAULT_HN = '護理長-林O穎'
 
 def load_staff_data():
@@ -76,7 +76,6 @@ if 'prev_streak' not in st.session_state: st.session_state.prev_streak = {n: 0 f
 with st.sidebar:
     st.header("⚙️ 排班系統控制台")
     
-    # 自動抓取當前時間並推算下個月
     now = datetime.now()
     next_month = now.month + 1 if now.month < 12 else 1
     next_month_year = now.year if now.month < 12 else now.year + 1
@@ -337,6 +336,10 @@ with st.sidebar:
     
     holiday_dates = st.multiselect("🎈 8. 勾選國定假日", list(range(1, num_days+1)))
 
+    st.write("---")
+    st.write("🐣 **新人防撞班設定 (夜班錯開)**")
+    newbie_list = st.multiselect("選擇剛獨立/上夜班的新人 (系統會確保他們在同天的小夜或大夜最多只有1人)", active_staff)
+
 # --- 5. 人員卡片 ---
 def render_staff_card(name, year, month, is_hn=False):
     fix_status = st.session_state.fixed.get(name, "無 (三班混合)")
@@ -393,7 +396,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (支援 D/E彈性選擇 & 兩班制屬性)"):
+        with st.spinner("神經網路運算中... (支援防撞班與各種特殊規則)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -436,6 +439,7 @@ with tab_run:
                     if n in pall_staff and manual_shift != '8-12':
                         model.Add(work[(n, d, SHIFTS.index('8-12'))] == 0)
 
+                # 跨月規則
                 last_shift = st.session_state.prev_status.get(n, {}).get('shift', 'Off')
                 if 1 not in user_shifts:
                     if last_shift in ['E', '支-E']:
@@ -583,6 +587,14 @@ with tab_run:
                         iso_work = model.NewBoolVar(f'iso_work_{n}_{d}')
                         model.Add(iso_work >= -W[d-1] + W[d] - W[d+1])
                         fragmentation_penalties.append(iso_work)
+
+            # 🔥 新人夜班防撞網 🔥
+            if newbie_list:
+                e_shifts = [SHIFTS.index(s) for s in ['E', '12-8', '4-8', '支-E'] if s in list(SHIFTS)]
+                n_shifts = [SHIFTS.index(s) for s in ['N', '支-N'] if s in list(SHIFTS)]
+                for d in range(1, num_days+1):
+                    model.Add(sum(work[(n, d, s_idx)] for n in newbie_list if n in active_staff for s_idx in e_shifts) <= 1)
+                    model.Add(sum(work[(n, d, s_idx)] for n in newbie_list if n in active_staff for s_idx in n_shifts) <= 1)
 
             shortfall_vars = []
             surplus_vars = [] 
