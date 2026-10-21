@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 新人防撞網)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 週五獨立設定)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -109,7 +109,7 @@ with st.sidebar:
             h_su_n = c3.number_input("N ", 0, 10, 1, key="h_su_n")
 
         with tab_p:
-            p_split_enable = st.checkbox("🔄 啟用【平日】分段人力切換 (如: 10號換編制)")
+            p_split_enable = st.checkbox("🔄 啟用【平日 (一~四)】分段人力切換")
             
             if p_split_enable:
                 p_split_day = st.number_input("設定切換日期 (此日開始套用新設定)", 2, 31, 10)
@@ -139,14 +139,16 @@ with st.sidebar:
                 p_mth_48 = c4.number_input("4-8", 0, 10, 1, key="p_mth_48")
                 p_mth_128 = c5.number_input("12-8", 0, 10, 0, key="p_mth_128")
                 
-                st.write("【週五】")
-                c1, c2, c3, c4 = st.columns(4)
-                p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
-                p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
-                p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
-                p_f_128 = c4.number_input("12-8", 0, 10, 1, key="p_f_128")
+            # 🔥 週五專屬設定區塊 🔥
+            st.write("【週五】 (獨立設定，不受分段影響)")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
+            p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
+            p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
+            p_f_48 = c4.number_input("4-8", 0, 10, 1, key="p_f_48")
+            p_f_128 = c5.number_input("12-8", 0, 10, 0, key="p_f_128")
             
-            st.write("【週末 / 國定假日】 (不受分段影響)")
+            st.write("【週末 / 國定假日】")
             c1, c2, c3 = st.columns(3)
             p_we_d = c1.number_input("D ", 0, 10, 3, key="p_we_d")
             p_we_e = c2.number_input("E ", 0, 10, 2, key="p_we_e")
@@ -396,7 +398,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (支援防撞班與各種特殊規則)"):
+        with st.spinner("神經網路運算中... (支援防撞班與缺班顏色標記)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -602,8 +604,8 @@ with tab_run:
                 sf = model.NewIntVar(0, target_count, f'sf_{day}_{shift_indices}_{id(staff_list)}')
                 surp = model.NewIntVar(0, len(staff_list), f'surp_{day}_{shift_indices}_{id(staff_list)}')
                 model.Add(sum(work[(n, day, s)] for n in staff_list for s in shift_indices) + sf - surp == target_count)
-                shortfall_vars.append(sf)
-                surplus_vars.append(surp)
+                shortfall_vars.append((day, sf))
+                surplus_vars.append((day, surp))
 
             leader_shortfalls = []
             valid_seniors = list(set([n for n in heme_seniors if n in heme_staff] + [n for n in pall_seniors if n in pall_staff]))
@@ -628,18 +630,19 @@ with tab_run:
                     if h_su_e > 0: add_exact_demand(heme_staff, d, [2], h_su_e)
                     if h_su_n > 0: add_exact_demand(heme_staff, d, [3], h_su_n)
 
+                # 🔥 這裡加入了【週五獨立】邏輯 🔥
                 if is_weekday and not is_holiday:
-                    if p_split_enable:
-                        req_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
-                        req_e  = p_mth_e_1  if d < p_split_day else p_mth_e_2
-                        req_n  = p_mth_n_1  if d < p_split_day else p_mth_n_2
-                        req_48 = p_mth_48_1 if d < p_split_day else p_mth_48_2
-                        req_128 = p_mth_128_1 if d < p_split_day else p_mth_128_2
-                    else:
-                        if wd < 4:
-                            req_d, req_e, req_n, req_48, req_128 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_128
+                    if wd == 4: # 獨立處理週五
+                        req_d, req_e, req_n, req_48, req_128 = p_f_d, p_f_e, p_f_n, p_f_48, p_f_128
+                    else: # 週一至週四
+                        if p_split_enable:
+                            req_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
+                            req_e  = p_mth_e_1  if d < p_split_day else p_mth_e_2
+                            req_n  = p_mth_n_1  if d < p_split_day else p_mth_n_2
+                            req_48 = p_mth_48_1 if d < p_split_day else p_mth_48_2
+                            req_128 = p_mth_128_1 if d < p_split_day else p_mth_128_2
                         else:
-                            req_d, req_e, req_n, req_48, req_128 = p_f_d, p_f_e, p_f_n, 0, p_f_128
+                            req_d, req_e, req_n, req_48, req_128 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_128
                             
                     if req_d > 0:  add_exact_demand(pall_staff, d, [1], req_d)
                     if req_e > 0:  add_exact_demand(pall_staff, d, [2], req_e)
@@ -686,8 +689,8 @@ with tab_run:
             model.Add(excess_gap >= fairness_gap - allowed_off_gap)
 
             total_offs = sum(work[(n,d,0)] for n in active_staff for d in range(1, num_days+1))
-            total_shortfall_penalty = sum(shortfall_vars)
-            total_surplus_penalty = sum(surplus_vars) 
+            total_shortfall_penalty = sum(sf for d, sf in shortfall_vars)
+            total_surplus_penalty = sum(surp for d, surp in surplus_vars) 
             total_leader_penalty = sum(sf for d, sf in leader_shortfalls)
             total_frag_penalty = sum(fragmentation_penalties) 
             total_shift_change_penalty = sum(shift_changes) 
@@ -710,9 +713,14 @@ with tab_run:
             status = solver.Solve(model)
 
             if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                shortfall_amount = int(solver.Value(sum(shortfall_vars)))
-                surplus_amount = int(solver.Value(sum(surplus_vars)))
+                shortfall_amount = int(sum(solver.Value(sf) for d, sf in shortfall_vars))
+                surplus_amount = int(sum(solver.Value(surp) for d, surp in surplus_vars))
                 
+                daily_shortfalls = {d: False for d in range(1, num_days+1)}
+                for d, sf in shortfall_vars:
+                    if solver.Value(sf) > 0:
+                        daily_shortfalls[d] = True
+
                 unrescued_l = []
                 rescued_l = []
                 missing_staff_l = [d for d, sf in leader_shortfalls if solver.Value(sf) > 0]
@@ -722,11 +730,13 @@ with tab_run:
                     if hn_shift in ['D', 'L']: rescued_l.append(str(d_day))
                     else: unrescued_l.append(str(d_day))
                 
+                missing_l_days = [d for d, sf in leader_shortfalls if solver.Value(sf) > 0]
+
                 if unrescued_l: st.error(f"🚨 **警告！缺 L 日期：**{', '.join(unrescued_l)} 號")
                 if rescued_l: st.warning(f"⚠️ **提示**：{', '.join(rescued_l)} 號由護理長親自上陣救援 L 班！")
                 
                 if shortfall_amount > 0: 
-                    st.error(f"🚨 嚴重警告！已達系統極限，仍有 {shortfall_amount} 個班次缺人。請至左側【每日人力需求調整】降載人力，或修改預排！")
+                    st.error(f"🚨 嚴重警告！已達系統極限，仍有 {shortfall_amount} 個班次缺人。紅色標題日期為缺班日！")
                 elif surplus_amount > 0: 
                     st.info(f"💡 班表出爐！本月有 {surplus_amount} 個班次多出人力。")
                 elif not unrescued_l: 
@@ -734,7 +744,20 @@ with tab_run:
                 
                 excel_data = []
                 ui_display_rows = [] 
-                ui_columns = ['組別', '姓名', '屬性'] + [str(d) for d in range(1, num_days+1)] + ['OFF', 'N', 'E']
+                
+                ui_columns = ['組別', '姓名', '屬性']
+                for d in range(1, num_days+1):
+                    is_sf = daily_shortfalls[d]
+                    is_ml = (d in missing_l_days)
+                    if is_sf and is_ml:
+                        ui_columns.append(f"<div style='background-color:#E26B0A; color:white; padding:4px; border-radius:4px; text-align:center;'>{d}<br>缺班+L</div>")
+                    elif is_sf:
+                        ui_columns.append(f"<div style='background-color:#FFC7CE; color:#9C0006; padding:4px; border-radius:4px; text-align:center;'>{d}<br>缺班</div>")
+                    elif is_ml:
+                        ui_columns.append(f"<div style='background-color:#FFEB9C; color:#9C5700; padding:4px; border-radius:4px; text-align:center;'>{d}<br>缺L</div>")
+                    else:
+                        ui_columns.append(str(d))
+                ui_columns.extend(['OFF', 'N', 'E'])
                 
                 date_row = ['姓名', '屬性', '上月', '天數'] + [f"{month}/{d}" for d in range(1, num_days+1)] + ['OFF', 'N', 'E', '包班']
                 excel_data.append(date_row)
@@ -829,7 +852,6 @@ with tab_run:
                 excel_data.append(['全站總計 D', '', '', ''] + global_d_fmt + ['', '', '', ''])
                 excel_data.append(['全站總計 E', '', '', ''] + global_e_fmt + ['', '', '', ''])
                 
-                # --- 互動式預覽表格 ---
                 st.markdown("### 📊 排班結果總覽 (可左右滑動)")
                 df_ui = pd.DataFrame(ui_display_rows, columns=ui_columns)
                 st.markdown(df_ui.to_html(escape=False), unsafe_allow_html=True)
@@ -838,7 +860,6 @@ with tab_run:
                 st.write("### 📊 本月各班別總計")
                 st.dataframe(pd.DataFrame(stats).T)
                 
-                # --- 產生並下載 Excel ---
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer: 
                     pd.DataFrame(excel_data).to_excel(writer, sheet_name='總表', header=False, index=False)
@@ -855,12 +876,27 @@ with tab_run:
                     sn_fmt = workbook.add_format({'bg_color': '#EAEAEA', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
                     sw_fmt = workbook.add_format({'bg_color': '#DFD6A3', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
                     
+                    sf_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
+                    ml_fmt = workbook.add_format({'bg_color': '#FFEB9C', 'font_color': '#9C5700', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
+                    both_fmt = workbook.add_format({'bg_color': '#E26B0A', 'font_color': 'white', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
+                    
                     ws_main.set_column(0, 0, 16); ws_main.set_column(1, 1, 12); ws_main.set_column(2, 3, 6); ws_main.set_column(4, 3+num_days, 6) 
                     
                     for r_idx, row_data in enumerate(excel_data):
-                        if r_idx < 2:
-                            for c_idx, val in enumerate(row_data): ws_main.write(r_idx, c_idx, val, h_fmt)
+                        if r_idx < 2: 
+                            for c_idx, val in enumerate(row_data):
+                                if 4 <= c_idx < 4 + num_days:
+                                    d = c_idx - 3
+                                    is_sf = daily_shortfalls[d]
+                                    is_ml = (d in missing_l_days)
+                                    if is_sf and is_ml: ws_main.write(r_idx, c_idx, val, both_fmt)
+                                    elif is_sf: ws_main.write(r_idx, c_idx, val, sf_fmt)
+                                    elif is_ml: ws_main.write(r_idx, c_idx, val, ml_fmt)
+                                    else: ws_main.write(r_idx, c_idx, val, h_fmt)
+                                else:
+                                    ws_main.write(r_idx, c_idx, val, h_fmt)
                             continue
+                            
                         name = row_data[0]
                         if name in ['🩸 【血腫組】', '🕊️ 【安寧組】', '👩‍⚕️ 【護理長】']:
                             ws_main.merge_range(r_idx, 0, r_idx, len(row_data)-1, name, sec_fmt)
