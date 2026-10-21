@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 勿N彈性選擇)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 新人防護 + 勿N彈性)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -109,12 +109,12 @@ with st.sidebar:
             h_su_n = c3.number_input("N ", 0, 10, 1, key="h_su_n")
 
         with tab_p:
-            p_split_enable = st.checkbox("🔄 啟用【平日】分段人力切換 (如: 10號換編制)")
+            p_split_enable = st.checkbox("🔄 啟用【平日 (一~四)】分段人力切換")
             
             if p_split_enable:
                 p_split_day = st.number_input("設定切換日期 (此日開始套用新設定)", 2, 31, 10)
                 
-                st.markdown(f"**📌 1 號 ~ {p_split_day-1} 號 (平日)**")
+                st.markdown(f"**📌 1 號 ~ {p_split_day-1} 號 (平日 一~四)**")
                 c1, c2, c3, c4, c5 = st.columns(5)
                 p_mth_d_1 = c1.number_input("D", 0, 10, 3, key="p_d1")
                 p_mth_e_1 = c2.number_input("E", 0, 10, 2, key="p_e1")
@@ -122,7 +122,7 @@ with st.sidebar:
                 p_mth_48_1 = c4.number_input("4-8", 0, 10, 0, key="p_48_1")
                 p_mth_128_1 = c5.number_input("12-8", 0, 10, 1, key="p_128_1")
 
-                st.markdown(f"**📌 {p_split_day} 號 ~ 月底 (平日)**")
+                st.markdown(f"**📌 {p_split_day} 號 ~ 月底 (平日 一~四)**")
                 c1, c2, c3, c4, c5 = st.columns(5)
                 p_mth_d_2 = c1.number_input("D", 0, 10, 4, key="p_d2")
                 p_mth_e_2 = c2.number_input("E", 0, 10, 2, key="p_e2")
@@ -139,14 +139,16 @@ with st.sidebar:
                 p_mth_48 = c4.number_input("4-8", 0, 10, 1, key="p_mth_48")
                 p_mth_128 = c5.number_input("12-8", 0, 10, 0, key="p_mth_128")
                 
-                st.write("【週五】")
-                c1, c2, c3, c4 = st.columns(4)
-                p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
-                p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
-                p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
-                p_f_128 = c4.number_input("12-8", 0, 10, 1, key="p_f_128")
+            # 🔥 將週五設定獨立拉出 if-else 區塊外，確保變數一定會被定義 🔥
+            st.write("【週五】 (獨立設定，不受分段影響)")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
+            p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
+            p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
+            p_f_48 = c4.number_input("4-8", 0, 10, 1, key="p_f_48")
+            p_f_128 = c5.number_input("12-8", 0, 10, 0, key="p_f_128")
             
-            st.write("【週末 / 國定假日】 (不受分段影響)")
+            st.write("【週末 / 國定假日】")
             c1, c2, c3 = st.columns(3)
             p_we_d = c1.number_input("D ", 0, 10, 3, key="p_we_d")
             p_we_e = c2.number_input("E ", 0, 10, 2, key="p_we_e")
@@ -281,7 +283,7 @@ with st.sidebar:
                                 elif val in ['支-E', '支援小', '支E', 'ND-E', 'NDE']: val = '支-E'
                                 elif val in ['支-N', '支援大夜', '支N', '支大夜', 'ND-N', 'NDN']: val = '支-N'
                                 elif val in ['D/E', 'DE', 'D或E']: val = 'D/E' 
-                                elif val in ['勿N', '不N', '非N', '-N']: val = '勿N' # 🔥 加入勿N選項
+                                elif val in ['勿N', '不N', '非N', '-N']: val = '勿N'
                                 
                                 if val in SHIFTS or val in ['D/E', '勿N']:
                                     st.session_state.daily_shifts[name][d] = val
@@ -424,7 +426,7 @@ with tab_run:
                         allowed_indices = [SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), SHIFTS.index('4-8')]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                     elif s_val == '勿N':
-                        # 🔥 勿N 彈性選擇：排除 Off, N, 支-N, M, 公
+                        # 排除 N, 支-N, 還有行政休假相關，只允許白/小/彈性班
                         allowed_indices = [
                             SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), 
                             SHIFTS.index('4-8'), SHIFTS.index('8-12'), SHIFTS.index('1-8'), 
