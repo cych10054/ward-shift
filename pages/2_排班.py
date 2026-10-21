@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 週五獨立設定)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 勿N彈性選擇)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -109,7 +109,7 @@ with st.sidebar:
             h_su_n = c3.number_input("N ", 0, 10, 1, key="h_su_n")
 
         with tab_p:
-            p_split_enable = st.checkbox("🔄 啟用【平日 (一~四)】分段人力切換")
+            p_split_enable = st.checkbox("🔄 啟用【平日】分段人力切換 (如: 10號換編制)")
             
             if p_split_enable:
                 p_split_day = st.number_input("設定切換日期 (此日開始套用新設定)", 2, 31, 10)
@@ -139,16 +139,14 @@ with st.sidebar:
                 p_mth_48 = c4.number_input("4-8", 0, 10, 1, key="p_mth_48")
                 p_mth_128 = c5.number_input("12-8", 0, 10, 0, key="p_mth_128")
                 
-            # 🔥 週五專屬設定區塊 🔥
-            st.write("【週五】 (獨立設定，不受分段影響)")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
-            p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
-            p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
-            p_f_48 = c4.number_input("4-8", 0, 10, 1, key="p_f_48")
-            p_f_128 = c5.number_input("12-8", 0, 10, 0, key="p_f_128")
+                st.write("【週五】")
+                c1, c2, c3, c4 = st.columns(4)
+                p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
+                p_f_e = c2.number_input("E", 0, 10, 2, key="p_f_e")
+                p_f_n = c3.number_input("N", 0, 10, 2, key="p_f_n")
+                p_f_128 = c4.number_input("12-8", 0, 10, 1, key="p_f_128")
             
-            st.write("【週末 / 國定假日】")
+            st.write("【週末 / 國定假日】 (不受分段影響)")
             c1, c2, c3 = st.columns(3)
             p_we_d = c1.number_input("D ", 0, 10, 3, key="p_we_d")
             p_we_e = c2.number_input("E ", 0, 10, 2, key="p_we_e")
@@ -283,8 +281,9 @@ with st.sidebar:
                                 elif val in ['支-E', '支援小', '支E', 'ND-E', 'NDE']: val = '支-E'
                                 elif val in ['支-N', '支援大夜', '支N', '支大夜', 'ND-N', 'NDN']: val = '支-N'
                                 elif val in ['D/E', 'DE', 'D或E']: val = 'D/E' 
+                                elif val in ['勿N', '不N', '非N', '-N']: val = '勿N' # 🔥 加入勿N選項
                                 
-                                if val in SHIFTS or val == 'D/E':
+                                if val in SHIFTS or val in ['D/E', '勿N']:
                                     st.session_state.daily_shifts[name][d] = val
                     
                     if not_found_names: st.error(f"🚨 警告！Excel 裡這些名字對不上：{', '.join(not_found_names)}")
@@ -398,7 +397,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (支援防撞班與缺班顏色標記)"):
+        with st.spinner("神經網路運算中... (支援防撞班與各種彈性指令)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -424,6 +423,14 @@ with tab_run:
                     elif s_val == 'D/E':
                         allowed_indices = [SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), SHIFTS.index('4-8')]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
+                    elif s_val == '勿N':
+                        # 🔥 勿N 彈性選擇：排除 Off, N, 支-N, M, 公
+                        allowed_indices = [
+                            SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), 
+                            SHIFTS.index('4-8'), SHIFTS.index('8-12'), SHIFTS.index('1-8'), 
+                            SHIFTS.index('L'), SHIFTS.index('支-D'), SHIFTS.index('支-E')
+                        ]
+                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                 
                 for d in range(1, num_days+1):
                     manual_shift = user_shifts.get(d)
@@ -435,7 +442,7 @@ with tab_run:
                         model.Add(work[(n, d, SHIFTS.index('支-E'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('支-N'))] == 0)
 
-                    if n in heme_staff and manual_shift not in ['12-8', '1-8', 'D/E']:
+                    if n in heme_staff and manual_shift not in ['12-8', '1-8', 'D/E', '勿N']:
                         model.Add(work[(n, d, SHIFTS.index('12-8'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('1-8'))] == 0)
                     if n in pall_staff and manual_shift != '8-12':
@@ -489,7 +496,7 @@ with tab_run:
 
                 # 班別順序防護
                 for d in range(1, num_days):
-                    if d in user_shifts and (d+1) in user_shifts and user_shifts[d] != 'D/E' and user_shifts[d+1] != 'D/E': 
+                    if d in user_shifts and (d+1) in user_shifts and user_shifts[d] not in ['D/E', '勿N'] and user_shifts[d+1] not in ['D/E', '勿N']: 
                         continue 
                     for day_shift in [1, 6, 8, 9, 10]:
                         model.Add(work[(n, d, 2)] + work[(n, d+1, day_shift)] <= 1)
@@ -560,7 +567,7 @@ with tab_run:
                     max_possible = 0
                     for d in range(1, num_days+1):
                         s_v = user_shifts.get(d)
-                        if s_v is None or s_v == 'D/E':
+                        if s_v is None or s_v in ['D/E', '勿N']:
                             max_possible += 1
                         elif s_v in SHIFTS and SHIFTS.index(s_v) in allowed_bonus:
                             max_possible += 1
@@ -630,11 +637,10 @@ with tab_run:
                     if h_su_e > 0: add_exact_demand(heme_staff, d, [2], h_su_e)
                     if h_su_n > 0: add_exact_demand(heme_staff, d, [3], h_su_n)
 
-                # 🔥 這裡加入了【週五獨立】邏輯 🔥
                 if is_weekday and not is_holiday:
-                    if wd == 4: # 獨立處理週五
+                    if wd == 4:
                         req_d, req_e, req_n, req_48, req_128 = p_f_d, p_f_e, p_f_n, p_f_48, p_f_128
-                    else: # 週一至週四
+                    else:
                         if p_split_enable:
                             req_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
                             req_e  = p_mth_e_1  if d < p_split_day else p_mth_e_2
@@ -795,6 +801,7 @@ with tab_run:
                                         break
                             row_shifts.append(assigned)
                             
+                            # 針對 勿N 與 D/E 彈性班別標紅顯示
                             if d in user_pre_shifts or (n == hn_name and assigned != 'Off'): 
                                 display_row.append(f"<span style='color:red; font-weight:bold;'>{assigned}</span>")
                             else: 
