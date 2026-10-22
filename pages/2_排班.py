@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 新人防護 + 勿N彈性)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 勿D/勿E/勿N 彈性防護)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -139,7 +139,6 @@ with st.sidebar:
                 p_mth_48 = c4.number_input("4-8", 0, 10, 1, key="p_mth_48")
                 p_mth_128 = c5.number_input("12-8", 0, 10, 0, key="p_mth_128")
                 
-            # 🔥 將週五設定獨立拉出 if-else 區塊外，確保變數一定會被定義 🔥
             st.write("【週五】 (獨立設定，不受分段影響)")
             c1, c2, c3, c4, c5 = st.columns(5)
             p_f_d = c1.number_input("D", 0, 10, 4, key="p_f_d")
@@ -284,8 +283,10 @@ with st.sidebar:
                                 elif val in ['支-N', '支援大夜', '支N', '支大夜', 'ND-N', 'NDN']: val = '支-N'
                                 elif val in ['D/E', 'DE', 'D或E']: val = 'D/E' 
                                 elif val in ['勿N', '不N', '非N', '-N']: val = '勿N'
+                                elif val in ['勿D', '不D', '非D', '-D']: val = '勿D' # 🔥 加入勿D
+                                elif val in ['勿E', '不E', '非E', '-E']: val = '勿E' # 🔥 加入勿E
                                 
-                                if val in SHIFTS or val in ['D/E', '勿N']:
+                                if val in SHIFTS or val in ['D/E', '勿N', '勿D', '勿E']:
                                     st.session_state.daily_shifts[name][d] = val
                     
                     if not_found_names: st.error(f"🚨 警告！Excel 裡這些名字對不上：{', '.join(not_found_names)}")
@@ -426,11 +427,26 @@ with tab_run:
                         allowed_indices = [SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), SHIFTS.index('4-8')]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                     elif s_val == '勿N':
-                        # 排除 N, 支-N, 還有行政休假相關，只允許白/小/彈性班
+                        # 排除 N, 支-N
                         allowed_indices = [
                             SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), 
                             SHIFTS.index('4-8'), SHIFTS.index('8-12'), SHIFTS.index('1-8'), 
                             SHIFTS.index('L'), SHIFTS.index('支-D'), SHIFTS.index('支-E')
+                        ]
+                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
+                    elif s_val == '勿D':
+                        # 排除 D, 8-12, L, 支-D (所有早班系)
+                        allowed_indices = [
+                            SHIFTS.index('E'), SHIFTS.index('N'), SHIFTS.index('12-8'), 
+                            SHIFTS.index('4-8'), SHIFTS.index('1-8'), 
+                            SHIFTS.index('支-E'), SHIFTS.index('支-N')
+                        ]
+                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
+                    elif s_val == '勿E':
+                        # 排除 E, 12-8, 4-8, 1-8, 支-E (所有小夜系)
+                        allowed_indices = [
+                            SHIFTS.index('D'), SHIFTS.index('N'), SHIFTS.index('8-12'), 
+                            SHIFTS.index('L'), SHIFTS.index('支-D'), SHIFTS.index('支-N')
                         ]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                 
@@ -444,7 +460,7 @@ with tab_run:
                         model.Add(work[(n, d, SHIFTS.index('支-E'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('支-N'))] == 0)
 
-                    if n in heme_staff and manual_shift not in ['12-8', '1-8', 'D/E', '勿N']:
+                    if n in heme_staff and manual_shift not in ['12-8', '1-8', 'D/E', '勿N', '勿D', '勿E']:
                         model.Add(work[(n, d, SHIFTS.index('12-8'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('1-8'))] == 0)
                     if n in pall_staff and manual_shift != '8-12':
@@ -457,6 +473,8 @@ with tab_run:
                         for s in [1, 6, 8, 9, 10]: model.Add(work[(n, 1, s)] == 0)
                     elif last_shift in ['D', 'L', '支-D']:
                         model.Add(work[(n, 1, 3)] == 0) 
+                    elif last_shift in ['N', '支-N']: 
+                        for s in [1, 6, 8, 9, 10]: model.Add(work[(n, 1, s)] == 0)
 
                 # 屬性排除邏輯
                 if "白" in f_type and "新" not in f_type:
@@ -498,11 +516,14 @@ with tab_run:
 
                 # 班別順序防護
                 for d in range(1, num_days):
-                    if d in user_shifts and (d+1) in user_shifts and user_shifts[d] not in ['D/E', '勿N'] and user_shifts[d+1] not in ['D/E', '勿N']: 
+                    if d in user_shifts and (d+1) in user_shifts and user_shifts[d] not in ['D/E', '勿N', '勿D', '勿E'] and user_shifts[d+1] not in ['D/E', '勿N', '勿D', '勿E']: 
                         continue 
-                    for day_shift in [1, 6, 8, 9, 10]:
+                    for day_shift in [1, 6, 8, 9, 10]: 
                         model.Add(work[(n, d, 2)] + work[(n, d+1, day_shift)] <= 1)
                         model.Add(work[(n, d, SHIFTS.index('支-E'))] + work[(n, d+1, day_shift)] <= 1)
+                        model.Add(work[(n, d, 3)] + work[(n, d+1, day_shift)] <= 1)
+                        model.Add(work[(n, d, SHIFTS.index('支-N'))] + work[(n, d+1, day_shift)] <= 1)
+
                     for prev_shift in [1, 2, 4, 5, 6, 7, 8, 9, 10, SHIFTS.index('支-D'), SHIFTS.index('支-E')]:
                         model.Add(work[(n, d, prev_shift)] + work[(n, d+1, 3)] <= 1)
                         model.Add(work[(n, d, prev_shift)] + work[(n, d+1, SHIFTS.index('支-N'))] <= 1)
@@ -569,7 +590,7 @@ with tab_run:
                     max_possible = 0
                     for d in range(1, num_days+1):
                         s_v = user_shifts.get(d)
-                        if s_v is None or s_v in ['D/E', '勿N']:
+                        if s_v is None or s_v in ['D/E', '勿N', '勿D', '勿E']:
                             max_possible += 1
                         elif s_v in SHIFTS and SHIFTS.index(s_v) in allowed_bonus:
                             max_possible += 1
@@ -803,7 +824,7 @@ with tab_run:
                                         break
                             row_shifts.append(assigned)
                             
-                            # 針對 勿N 與 D/E 彈性班別標紅顯示
+                            # 針對 勿D, 勿E, 勿N 與 D/E 彈性班別標紅顯示
                             if d in user_pre_shifts or (n == hn_name and assigned != 'Off'): 
                                 display_row.append(f"<span style='color:red; font-weight:bold;'>{assigned}</span>")
                             else: 
