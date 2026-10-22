@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 自動偵測Training折抵)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + E/4-8 彈性指令)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -282,11 +282,12 @@ with st.sidebar:
                                 elif val in ['支-E', '支援小', '支E', 'ND-E', 'NDE']: val = '支-E'
                                 elif val in ['支-N', '支援大夜', '支N', '支大夜', 'ND-N', 'NDN']: val = '支-N'
                                 elif val in ['D/E', 'DE', 'D或E']: val = 'D/E' 
+                                elif val in ['E/4-8', 'E/48']: val = 'E/4-8' # 🔥 新增 E/4-8
                                 elif val in ['勿N', '不N', '非N', '-N']: val = '勿N'
                                 elif val in ['勿D', '不D', '非D', '-D']: val = '勿D'
                                 elif val in ['勿E', '不E', '非E', '-E']: val = '勿E'
                                 
-                                if val in SHIFTS or val in ['D/E', '勿N', '勿D', '勿E']:
+                                if val in SHIFTS or val in ['D/E', 'E/4-8', '勿N', '勿D', '勿E']:
                                     st.session_state.daily_shifts[name][d] = val
                     
                     if not_found_names: st.error(f"🚨 警告！Excel 裡這些名字對不上：{', '.join(not_found_names)}")
@@ -334,11 +335,16 @@ with st.sidebar:
     anti_frag_weight = st.slider("🛡️ 4. 護肝指數 (盡量避免單日休假)", 0, 500, 200)
     soft_max_streak = st.slider("💡 5. 期望最多連上天數", 3, 7, 4)
     hard_max_streak = st.slider("🛑 6. 絕對極限連上天數", 3, 7, 5)
+    balance_48_weight = st.slider("⚖️ 7. 平均分配 4-8 班次 (避免全部塞給同一人)", 0, 1000, 500)
     
-    st.info("🎯 7. 包班最低達標天數 (鐵血保證)：已由系統固定為 15 天")
+    st.info("🎯 8. 包班最低達標天數 (鐵血保證)：已由系統固定為 15 天")
     min_bonus_days = 15
     
-    holiday_dates = st.multiselect("🎈 8. 勾選國定假日", list(range(1, num_days+1)))
+    holiday_dates = st.multiselect("🎈 9. 勾選國定假日", list(range(1, num_days+1)))
+
+    st.write("---")
+    st.write("🐣 **新人防撞班與訓練設定**")
+    newbie_list = st.multiselect("選擇訓練中的新人 (防撞班 + 訓練當日自動折抵 4-8)", active_staff)
 
 # --- 5. 人員卡片 ---
 def render_staff_card(name, year, month, is_hn=False):
@@ -396,7 +402,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (智慧偵測Training自動折抵)"):
+        with st.spinner("神經網路運算中... (啟動 4-8 平均分配防護網)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -415,12 +421,14 @@ with tab_run:
                 user_shifts = st.session_state.daily_shifts.get(n, {})
                 f_type = st.session_state.fixed.get(n, "")
                 
-                # 🛑 嚴格遵守手動排班 / 彈性選擇
                 for d, s_val in user_shifts.items():
                     if s_val in SHIFTS:
                         model.Add(work[(n, d, SHIFTS.index(s_val))] == 1)
                     elif s_val == 'D/E':
                         allowed_indices = [SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), SHIFTS.index('4-8')]
+                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
+                    elif s_val == 'E/4-8':  # 🔥 新增 E/4-8 彈性切換
+                        allowed_indices = [SHIFTS.index('E'), SHIFTS.index('4-8')]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                     elif s_val == '勿N':
                         allowed_indices = [
@@ -453,7 +461,7 @@ with tab_run:
                         model.Add(work[(n, d, SHIFTS.index('支-E'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('支-N'))] == 0)
 
-                    if n in heme_staff and manual_shift not in ['12-8', '1-8', 'D/E', '勿N', '勿D', '勿E']:
+                    if n in heme_staff and manual_shift not in ['12-8', '1-8', 'D/E', 'E/4-8', '勿N', '勿D', '勿E']:
                         model.Add(work[(n, d, SHIFTS.index('12-8'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('1-8'))] == 0)
                     if n in pall_staff and manual_shift != '8-12':
@@ -509,7 +517,7 @@ with tab_run:
 
                 # 班別順序防護
                 for d in range(1, num_days):
-                    if d in user_shifts and (d+1) in user_shifts and user_shifts[d] not in ['D/E', '勿N', '勿D', '勿E'] and user_shifts[d+1] not in ['D/E', '勿N', '勿D', '勿E']: 
+                    if d in user_shifts and (d+1) in user_shifts and user_shifts[d] not in ['D/E', 'E/4-8', '勿N', '勿D', '勿E'] and user_shifts[d+1] not in ['D/E', 'E/4-8', '勿N', '勿D', '勿E']: 
                         continue 
                     for day_shift in [1, 6, 8, 9, 10]: 
                         model.Add(work[(n, d, 2)] + work[(n, d+1, day_shift)] <= 1)
@@ -583,7 +591,7 @@ with tab_run:
                     max_possible = 0
                     for d in range(1, num_days+1):
                         s_v = user_shifts.get(d)
-                        if s_v is None or s_v in ['D/E', '勿N', '勿D', '勿E']:
+                        if s_v is None or s_v in ['D/E', 'E/4-8', '勿N', '勿D', '勿E']:
                             max_possible += 1
                         elif s_v in SHIFTS and SHIFTS.index(s_v) in allowed_bonus:
                             max_possible += 1
@@ -613,11 +621,49 @@ with tab_run:
                         model.Add(iso_work >= -W[d-1] + W[d] - W[d+1])
                         fragmentation_penalties.append(iso_work)
 
+            # 🔥 4-8 平均分配防護網 (削峰填谷) 🔥
+            max_48_var = model.NewIntVar(0, 31, 'max_48')
+            for n in active_staff:
+                n_48_count = sum(work[(n, d, SHIFTS.index('4-8'))] for d in range(1, num_days+1))
+                model.Add(max_48_var >= n_48_count)
+
+            # 🔥 新人夜班防撞網 🔥
+            if newbie_list:
+                e_shifts = [SHIFTS.index(s) for s in ['E', '12-8', '4-8', '支-E'] if s in list(SHIFTS)]
+                n_shifts = [SHIFTS.index(s) for s in ['N', '支-N'] if s in list(SHIFTS)]
+                for d in range(1, num_days+1):
+                    model.Add(sum(work[(n, d, s_idx)] for n in newbie_list if n in active_staff for s_idx in e_shifts) <= 1)
+                    model.Add(sum(work[(n, d, s_idx)] for n in newbie_list if n in active_staff for s_idx in n_shifts) <= 1)
+
             shortfall_vars = []
             surplus_vars = [] 
+            
+            def get_dynamic_demands(staff_list, newbies_in_unit, day_d, b_d, b_e, b_n, b_48, b_128, b_812):
+                if not newbies_in_unit:
+                    return b_d, b_e, b_n, b_48, b_128, b_812
+                    
+                rookie_e_count = sum(work[(n, day_d, s)] for n in newbies_in_unit for s in [SHIFTS.index('E'), SHIFTS.index('支-E')])
+                rookie_n_count = sum(work[(n, day_d, s)] for n in newbies_in_unit for s in [SHIFTS.index('N'), SHIFTS.index('支-N')])
+                rookie_total = rookie_e_count + rookie_n_count
+
+                dyn_e = model.NewIntVar(0, 30, f'dyn_e_{id(staff_list)}_{day_d}')
+                model.Add(dyn_e == b_e + rookie_e_count)
+
+                dyn_n = model.NewIntVar(0, 30, f'dyn_n_{id(staff_list)}_{day_d}')
+                model.Add(dyn_n == b_n + rookie_n_count)
+
+                is_tr = model.NewBoolVar(f'is_tr_{id(staff_list)}_{day_d}')
+                model.Add(rookie_total > 0).OnlyEnforceIf(is_tr)
+                model.Add(rookie_total == 0).OnlyEnforceIf(is_tr.Not())
+
+                dyn_48 = model.NewIntVar(0, 30, f'dyn_48_{id(staff_list)}_{day_d}')
+                model.Add(dyn_48 == 0).OnlyEnforceIf(is_tr)
+                model.Add(dyn_48 == b_48).OnlyEnforceIf(is_tr.Not())
+
+                return b_d, dyn_e, dyn_n, dyn_48, b_128, b_812
+
             def add_exact_demand(staff_list, day, shift_indices, target_count):
-                if target_count <= 0: return
-                ub = max(30, target_count)
+                ub = max(30, target_count) if isinstance(target_count, int) else 30
                 sf = model.NewIntVar(0, ub, f'sf_{day}_{shift_indices}_{id(staff_list)}')
                 surp = model.NewIntVar(0, ub, f'surp_{day}_{shift_indices}_{id(staff_list)}')
                 model.Add(sum(work[(n, day, s)] for n in staff_list for s in shift_indices) + sf - surp == target_count)
@@ -626,6 +672,9 @@ with tab_run:
 
             leader_shortfalls = []
             valid_seniors = list(set([n for n in heme_seniors if n in heme_staff] + [n for n in pall_seniors if n in pall_staff]))
+            
+            newbies_h = [n for n in newbie_list if n in heme_staff]
+            newbies_p = [n for n in newbie_list if n in pall_staff]
 
             for d in range(1, num_days+1):
                 wd = (first_wd + d - 1) % 7 
@@ -640,7 +689,6 @@ with tab_run:
                 else:
                     base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_su_d, h_su_e, h_su_n, 0, 0, 0
 
-                # 🔥 智慧偵測：手動預排的小夜/大夜數量如果超過預設需求 (代表有新人Training)，自動折抵 4-8
                 manual_h_e = sum(1 for n in heme_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['E', '支-E'])
                 manual_h_n = sum(1 for n in heme_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['N', '支-N'])
                 
@@ -651,11 +699,13 @@ with tab_run:
                     base_h_n = manual_h_n
                     base_h_48 = 0
 
-                add_exact_demand(heme_staff, d, [1], base_h_d)
-                add_exact_demand(heme_staff, d, [2], base_h_e)
-                add_exact_demand(heme_staff, d, [3], base_h_n)
-                add_exact_demand(heme_staff, d, [5], base_h_48)
-                add_exact_demand(heme_staff, d, [6], base_h_812)
+                h_d, h_e, h_n, h_48, h_128, h_812 = get_dynamic_demands(heme_staff, newbies_h, d, base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812)
+
+                if base_h_d > 0: add_exact_demand(heme_staff, d, [1], h_d)
+                add_exact_demand(heme_staff, d, [2], h_e)
+                add_exact_demand(heme_staff, d, [3], h_n)
+                if base_h_48 > 0: add_exact_demand(heme_staff, d, [5], h_48)
+                if base_h_812 > 0: add_exact_demand(heme_staff, d, [6], h_812)
 
                 # --- 🕊️ 安寧組需求 ---
                 if is_weekday and not is_holiday:
@@ -673,7 +723,6 @@ with tab_run:
                 else: 
                     base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_we_d, p_we_e, p_we_n, 0, 0
 
-                # 🔥 安寧組同樣套用智慧折抵防護
                 manual_p_e = sum(1 for n in pall_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['E', '支-E'])
                 manual_p_n = sum(1 for n in pall_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['N', '支-N'])
                 
@@ -684,11 +733,13 @@ with tab_run:
                     base_p_n = manual_p_n
                     base_p_48 = 0
 
-                add_exact_demand(pall_staff, d, [1], base_p_d)
-                add_exact_demand(pall_staff, d, [2], base_p_e)
-                add_exact_demand(pall_staff, d, [3], base_p_n)
-                add_exact_demand(pall_staff, d, [5], base_p_48)
-                add_exact_demand(pall_staff, d, [4], base_p_128)
+                p_d, p_e, p_n, p_48, p_128, _ = get_dynamic_demands(pall_staff, newbies_p, d, base_p_d, base_p_e, base_p_n, base_p_48, base_p_128, 0)
+
+                if base_p_d > 0: add_exact_demand(pall_staff, d, [1], p_d)
+                add_exact_demand(pall_staff, d, [2], p_e)
+                add_exact_demand(pall_staff, d, [3], p_n)
+                if base_p_48 > 0: add_exact_demand(pall_staff, d, [5], p_48)
+                if base_p_128 > 0: add_exact_demand(pall_staff, d, [4], p_128)
 
                 if is_weekday:
                     for n in active_staff:
@@ -742,6 +793,7 @@ with tab_run:
                 - total_streak_penalty * 800  
                 - excess_gap * 1000  
                 - fairness_gap * 5   
+                - max_48_var * balance_48_weight 
             )
 
             solver = cp_model.CpSolver()
@@ -831,7 +883,7 @@ with tab_run:
                                         break
                             row_shifts.append(assigned)
                             
-                            # 針對 勿D, 勿E, 勿N 與 D/E 彈性班別標紅顯示
+                            # 針對各種彈性班別標紅顯示
                             if d in user_pre_shifts or (n == hn_name and assigned != 'Off'): 
                                 display_row.append(f"<span style='color:red; font-weight:bold;'>{assigned}</span>")
                             else: 
