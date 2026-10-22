@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 勿D/勿E/勿N 彈性防護)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 自動偵測Training折抵)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -283,8 +283,8 @@ with st.sidebar:
                                 elif val in ['支-N', '支援大夜', '支N', '支大夜', 'ND-N', 'NDN']: val = '支-N'
                                 elif val in ['D/E', 'DE', 'D或E']: val = 'D/E' 
                                 elif val in ['勿N', '不N', '非N', '-N']: val = '勿N'
-                                elif val in ['勿D', '不D', '非D', '-D']: val = '勿D' # 🔥 加入勿D
-                                elif val in ['勿E', '不E', '非E', '-E']: val = '勿E' # 🔥 加入勿E
+                                elif val in ['勿D', '不D', '非D', '-D']: val = '勿D'
+                                elif val in ['勿E', '不E', '非E', '-E']: val = '勿E'
                                 
                                 if val in SHIFTS or val in ['D/E', '勿N', '勿D', '勿E']:
                                     st.session_state.daily_shifts[name][d] = val
@@ -339,10 +339,6 @@ with st.sidebar:
     min_bonus_days = 15
     
     holiday_dates = st.multiselect("🎈 8. 勾選國定假日", list(range(1, num_days+1)))
-
-    st.write("---")
-    st.write("🐣 **新人防撞班設定 (夜班錯開)**")
-    newbie_list = st.multiselect("選擇剛獨立/上夜班的新人 (系統會確保他們在同天的小夜或大夜最多只有1人)", active_staff)
 
 # --- 5. 人員卡片 ---
 def render_staff_card(name, year, month, is_hn=False):
@@ -400,7 +396,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (支援防撞班與各種彈性指令)"):
+        with st.spinner("神經網路運算中... (智慧偵測Training自動折抵)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -427,7 +423,6 @@ with tab_run:
                         allowed_indices = [SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), SHIFTS.index('4-8')]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                     elif s_val == '勿N':
-                        # 排除 N, 支-N
                         allowed_indices = [
                             SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), 
                             SHIFTS.index('4-8'), SHIFTS.index('8-12'), SHIFTS.index('1-8'), 
@@ -435,7 +430,6 @@ with tab_run:
                         ]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                     elif s_val == '勿D':
-                        # 排除 D, 8-12, L, 支-D (所有早班系)
                         allowed_indices = [
                             SHIFTS.index('E'), SHIFTS.index('N'), SHIFTS.index('12-8'), 
                             SHIFTS.index('4-8'), SHIFTS.index('1-8'), 
@@ -443,7 +437,6 @@ with tab_run:
                         ]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                     elif s_val == '勿E':
-                        # 排除 E, 12-8, 4-8, 1-8, 支-E (所有小夜系)
                         allowed_indices = [
                             SHIFTS.index('D'), SHIFTS.index('N'), SHIFTS.index('8-12'), 
                             SHIFTS.index('L'), SHIFTS.index('支-D'), SHIFTS.index('支-N')
@@ -620,19 +613,13 @@ with tab_run:
                         model.Add(iso_work >= -W[d-1] + W[d] - W[d+1])
                         fragmentation_penalties.append(iso_work)
 
-            # 🔥 新人夜班防撞網 🔥
-            if newbie_list:
-                e_shifts = [SHIFTS.index(s) for s in ['E', '12-8', '4-8', '支-E'] if s in list(SHIFTS)]
-                n_shifts = [SHIFTS.index(s) for s in ['N', '支-N'] if s in list(SHIFTS)]
-                for d in range(1, num_days+1):
-                    model.Add(sum(work[(n, d, s_idx)] for n in newbie_list if n in active_staff for s_idx in e_shifts) <= 1)
-                    model.Add(sum(work[(n, d, s_idx)] for n in newbie_list if n in active_staff for s_idx in n_shifts) <= 1)
-
             shortfall_vars = []
             surplus_vars = [] 
             def add_exact_demand(staff_list, day, shift_indices, target_count):
-                sf = model.NewIntVar(0, target_count, f'sf_{day}_{shift_indices}_{id(staff_list)}')
-                surp = model.NewIntVar(0, len(staff_list), f'surp_{day}_{shift_indices}_{id(staff_list)}')
+                if target_count <= 0: return
+                ub = max(30, target_count)
+                sf = model.NewIntVar(0, ub, f'sf_{day}_{shift_indices}_{id(staff_list)}')
+                surp = model.NewIntVar(0, ub, f'surp_{day}_{shift_indices}_{id(staff_list)}')
                 model.Add(sum(work[(n, day, s)] for n in staff_list for s in shift_indices) + sf - surp == target_count)
                 shortfall_vars.append((day, sf))
                 surplus_vars.append((day, surp))
@@ -645,43 +632,63 @@ with tab_run:
                 is_holiday = (d in holiday_dates)
                 is_weekday = (wd < 5) 
                 
+                # --- 🩸 血腫組需求 ---
                 if wd < 5 and not is_holiday:
-                    if h_wd_d > 0: add_exact_demand(heme_staff, d, [1], h_wd_d)
-                    if h_wd_e > 0: add_exact_demand(heme_staff, d, [2], h_wd_e)
-                    if h_wd_n > 0: add_exact_demand(heme_staff, d, [3], h_wd_n)
-                    if h_wd_48 > 0: add_exact_demand(heme_staff, d, [5], h_wd_48)
+                    base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_wd_d, h_wd_e, h_wd_n, h_wd_48, 0, 0
                 elif wd == 5 and not is_holiday:
-                    if h_sa_d > 0: add_exact_demand(heme_staff, d, [1], h_sa_d)
-                    if h_sa_e > 0: add_exact_demand(heme_staff, d, [2], h_sa_e)
-                    if h_sa_n > 0: add_exact_demand(heme_staff, d, [3], h_sa_n)
-                    if h_sa_812 > 0: add_exact_demand(heme_staff, d, [6], h_sa_812)
+                    base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_sa_d, h_sa_e, h_sa_n, 0, 0, h_sa_812
                 else:
-                    if h_su_d > 0: add_exact_demand(heme_staff, d, [1], h_su_d)
-                    if h_su_e > 0: add_exact_demand(heme_staff, d, [2], h_su_e)
-                    if h_su_n > 0: add_exact_demand(heme_staff, d, [3], h_su_n)
+                    base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_su_d, h_su_e, h_su_n, 0, 0, 0
 
+                # 🔥 智慧偵測：手動預排的小夜/大夜數量如果超過預設需求 (代表有新人Training)，自動折抵 4-8
+                manual_h_e = sum(1 for n in heme_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['E', '支-E'])
+                manual_h_n = sum(1 for n in heme_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['N', '支-N'])
+                
+                if manual_h_e > base_h_e:
+                    base_h_e = manual_h_e
+                    base_h_48 = 0
+                if manual_h_n > base_h_n:
+                    base_h_n = manual_h_n
+                    base_h_48 = 0
+
+                add_exact_demand(heme_staff, d, [1], base_h_d)
+                add_exact_demand(heme_staff, d, [2], base_h_e)
+                add_exact_demand(heme_staff, d, [3], base_h_n)
+                add_exact_demand(heme_staff, d, [5], base_h_48)
+                add_exact_demand(heme_staff, d, [6], base_h_812)
+
+                # --- 🕊️ 安寧組需求 ---
                 if is_weekday and not is_holiday:
                     if wd == 4:
-                        req_d, req_e, req_n, req_48, req_128 = p_f_d, p_f_e, p_f_n, p_f_48, p_f_128
+                        base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_f_d, p_f_e, p_f_n, p_f_48, p_f_128
                     else:
                         if p_split_enable:
-                            req_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
-                            req_e  = p_mth_e_1  if d < p_split_day else p_mth_e_2
-                            req_n  = p_mth_n_1  if d < p_split_day else p_mth_n_2
-                            req_48 = p_mth_48_1 if d < p_split_day else p_mth_48_2
-                            req_128 = p_mth_128_1 if d < p_split_day else p_mth_128_2
+                            base_p_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
+                            base_p_e  = p_mth_e_1  if d < p_split_day else p_mth_e_2
+                            base_p_n  = p_mth_n_1  if d < p_split_day else p_mth_n_2
+                            base_p_48 = p_mth_48_1 if d < p_split_day else p_mth_48_2
+                            base_p_128 = p_mth_128_1 if d < p_split_day else p_mth_128_2
                         else:
-                            req_d, req_e, req_n, req_48, req_128 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_128
-                            
-                    if req_d > 0:  add_exact_demand(pall_staff, d, [1], req_d)
-                    if req_e > 0:  add_exact_demand(pall_staff, d, [2], req_e)
-                    if req_n > 0:  add_exact_demand(pall_staff, d, [3], req_n)
-                    if req_48 > 0: add_exact_demand(pall_staff, d, [5], req_48)
-                    if req_128 > 0: add_exact_demand(pall_staff, d, [4], req_128)
+                            base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_128
                 else: 
-                    if p_we_d > 0: add_exact_demand(pall_staff, d, [1], p_we_d)
-                    if p_we_e > 0: add_exact_demand(pall_staff, d, [2], p_we_e)
-                    if p_we_n > 0: add_exact_demand(pall_staff, d, [3], p_we_n)
+                    base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_we_d, p_we_e, p_we_n, 0, 0
+
+                # 🔥 安寧組同樣套用智慧折抵防護
+                manual_p_e = sum(1 for n in pall_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['E', '支-E'])
+                manual_p_n = sum(1 for n in pall_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['N', '支-N'])
+                
+                if manual_p_e > base_p_e:
+                    base_p_e = manual_p_e
+                    base_p_48 = 0
+                if manual_p_n > base_p_n:
+                    base_p_n = manual_p_n
+                    base_p_48 = 0
+
+                add_exact_demand(pall_staff, d, [1], base_p_d)
+                add_exact_demand(pall_staff, d, [2], base_p_e)
+                add_exact_demand(pall_staff, d, [3], base_p_n)
+                add_exact_demand(pall_staff, d, [5], base_p_48)
+                add_exact_demand(pall_staff, d, [4], base_p_128)
 
                 if is_weekday:
                     for n in active_staff:
