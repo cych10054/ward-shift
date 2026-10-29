@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + E/4-8 彈性指令)")
+st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 休假均勻打散)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -282,7 +282,7 @@ with st.sidebar:
                                 elif val in ['支-E', '支援小', '支E', 'ND-E', 'NDE']: val = '支-E'
                                 elif val in ['支-N', '支援大夜', '支N', '支大夜', 'ND-N', 'NDN']: val = '支-N'
                                 elif val in ['D/E', 'DE', 'D或E']: val = 'D/E' 
-                                elif val in ['E/4-8', 'E/48']: val = 'E/4-8' # 🔥 新增 E/4-8
+                                elif val in ['E/4-8', 'E/48']: val = 'E/4-8'
                                 elif val in ['勿N', '不N', '非N', '-N']: val = '勿N'
                                 elif val in ['勿D', '不D', '非D', '-D']: val = '勿D'
                                 elif val in ['勿E', '不E', '非E', '-E']: val = '勿E'
@@ -336,11 +336,12 @@ with st.sidebar:
     soft_max_streak = st.slider("💡 5. 期望最多連上天數", 3, 7, 4)
     hard_max_streak = st.slider("🛑 6. 絕對極限連上天數", 3, 7, 5)
     balance_48_weight = st.slider("⚖️ 7. 平均分配 4-8 班次 (避免全部塞給同一人)", 0, 1000, 500)
+    max_cons_off = st.slider("🏖️ 8. 最多連休天數 (把休假打散)", 2, 10, 4) # 🔥 新增最多連休防護
     
-    st.info("🎯 8. 包班最低達標天數 (鐵血保證)：已由系統固定為 15 天")
+    st.info("🎯 9. 包班最低達標天數 (鐵血保證)：已由系統固定為 15 天")
     min_bonus_days = 15
     
-    holiday_dates = st.multiselect("🎈 9. 勾選國定假日", list(range(1, num_days+1)))
+    holiday_dates = st.multiselect("🎈 10. 勾選國定假日", list(range(1, num_days+1)))
 
     st.write("---")
     st.write("🐣 **新人防撞班與訓練設定**")
@@ -402,7 +403,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (啟動 4-8 平均分配防護網)"):
+        with st.spinner("神經網路運算中... (啟動休假均勻打散防護)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -427,7 +428,7 @@ with tab_run:
                     elif s_val == 'D/E':
                         allowed_indices = [SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), SHIFTS.index('4-8')]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
-                    elif s_val == 'E/4-8':  # 🔥 新增 E/4-8 彈性切換
+                    elif s_val == 'E/4-8':
                         allowed_indices = [SHIFTS.index('E'), SHIFTS.index('4-8')]
                         model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
                     elif s_val == '勿N':
@@ -467,7 +468,6 @@ with tab_run:
                     if n in pall_staff and manual_shift != '8-12':
                         model.Add(work[(n, d, SHIFTS.index('8-12'))] == 0)
 
-                # 跨月規則
                 last_shift = st.session_state.prev_status.get(n, {}).get('shift', 'Off')
                 if 1 not in user_shifts:
                     if last_shift in ['E', '支-E']:
@@ -515,7 +515,6 @@ with tab_run:
                         if d not in user_shifts:
                             for s_idx in [2, 4, 5, 7, SHIFTS.index('支-E')]: model.Add(work[(n,d,s_idx)]==0)
 
-                # 班別順序防護
                 for d in range(1, num_days):
                     if d in user_shifts and (d+1) in user_shifts and user_shifts[d] not in ['D/E', 'E/4-8', '勿N', '勿D', '勿E'] and user_shifts[d+1] not in ['D/E', 'E/4-8', '勿N', '勿D', '勿E']: 
                         continue 
@@ -537,6 +536,7 @@ with tab_run:
                                 model.Add(change_var >= work[(n, d, s1)] + work[(n, d+1, s2)] - 1)
                                 shift_changes.append(change_var)
 
+                # 🔥 限制連續上班天數 🔥
                 window_size = hard_max_streak + 1
                 for d in range(1, num_days - window_size + 2):
                     manual_violation = True
@@ -560,6 +560,13 @@ with tab_run:
                             break
                     if not manual_violation:
                         model.Add(sum(work[(n, k, 0)] for k in range(1, window_end + 1)) >= 1)
+
+                # 🔥 限制連續休假天數 (打散休假防護網) 🔥
+                off_window = max_cons_off + 1
+                for d in range(1, num_days - off_window + 2):
+                    manual_off_count = sum(1 for k in range(off_window) if user_shifts.get(d+k) == 'Off')
+                    if manual_off_count < off_window: # 除非學姊手動排了超長連休，否則強制啟動打散防護
+                        model.Add(sum(work[(n, d+k, 0)] for k in range(off_window)) <= max_cons_off)
 
                 if soft_max_streak < hard_max_streak:
                     soft_window = soft_max_streak + 1
@@ -621,13 +628,11 @@ with tab_run:
                         model.Add(iso_work >= -W[d-1] + W[d] - W[d+1])
                         fragmentation_penalties.append(iso_work)
 
-            # 🔥 4-8 平均分配防護網 (削峰填谷) 🔥
             max_48_var = model.NewIntVar(0, 31, 'max_48')
             for n in active_staff:
                 n_48_count = sum(work[(n, d, SHIFTS.index('4-8'))] for d in range(1, num_days+1))
                 model.Add(max_48_var >= n_48_count)
 
-            # 🔥 新人夜班防撞網 🔥
             if newbie_list:
                 e_shifts = [SHIFTS.index(s) for s in ['E', '12-8', '4-8', '支-E'] if s in list(SHIFTS)]
                 n_shifts = [SHIFTS.index(s) for s in ['N', '支-N'] if s in list(SHIFTS)]
@@ -883,7 +888,6 @@ with tab_run:
                                         break
                             row_shifts.append(assigned)
                             
-                            # 針對各種彈性班別標紅顯示
                             if d in user_pre_shifts or (n == hn_name and assigned != 'Off'): 
                                 display_row.append(f"<span style='color:red; font-weight:bold;'>{assigned}</span>")
                             else: 
