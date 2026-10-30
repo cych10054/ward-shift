@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import calendar
 from ortools.sat.python import cp_model
-import io
-import json
-import os
+import io, json, os
 from datetime import datetime
 
 st.set_page_config(page_title="護理排班系統 (嚴格邏輯版)", layout="wide")
@@ -19,7 +17,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (5.8 穩定版 + 休假均勻打散)")
+st.title("🏥 智慧護理排班系統 (6.1 旗艦版 + 個人化作息偏好)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -30,7 +28,8 @@ def load_staff_data():
     data = {
         "heme": DEFAULT_HEME, "pall": DEFAULT_PALL, "hn": DEFAULT_HN,
         "heme_seniors": ['血腫-蔡O樺', '血腫-吳O茹'], 
-        "pall_seniors": ['安寧-龔O如', '安寧-葉O敏']
+        # 🔥 已經將「安寧-潘O菁」加入預設 Leader 名單 🔥
+        "pall_seniors": ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁']
     }
     if os.path.exists('staff_v5.json'):
         try:
@@ -60,22 +59,19 @@ pall_seniors = staff_data.get('pall_seniors', [])
 active_staff = heme_staff + pall_staff 
 all_staff = active_staff + [hn_name]
 
-# 班別清單
 SHIFTS = ['Off', 'D', 'E', 'N', '12-8', '4-8', '8-12', '1-8', 'M', '公', 'L', '支-D', '支-E', '支-N']
-
-def fmt_num(n):
-    return int(n) if n == int(n) else n
+def fmt_num(n): return int(n) if n == int(n) else n
 
 # --- 3. 狀態初始化 ---
 if 'daily_shifts' not in st.session_state: st.session_state.daily_shifts = {n: {} for n in all_staff}
 if 'fixed' not in st.session_state: st.session_state.fixed = {n: "無 (三班混合)" for n in all_staff}
+if 'work_style' not in st.session_state: st.session_state.work_style = {n: "預設 (跟隨左側)" for n in all_staff}
 if 'prev_status' not in st.session_state: st.session_state.prev_status = {n: {'shift': 'Off'} for n in all_staff}
 if 'prev_streak' not in st.session_state: st.session_state.prev_streak = {n: 0 for n in all_staff}
 
 # --- 4. 側邊欄 ---
 with st.sidebar:
     st.header("⚙️ 排班系統控制台")
-    
     now = datetime.now()
     next_month = now.month + 1 if now.month < 12 else 1
     next_month_year = now.year if now.month < 12 else now.year + 1
@@ -86,7 +82,6 @@ with st.sidebar:
     
     with st.expander("👥 每日人力需求調整", expanded=True):
         tab_h, tab_p = st.tabs(["🩸 血腫組", "🕊️ 安寧組"])
-        
         with tab_h:
             st.write("【平日 (週一 ~ 週五)】")
             c1, c2, c3, c4 = st.columns(4)
@@ -94,14 +89,12 @@ with st.sidebar:
             h_wd_e = c2.number_input("E", 0, 10, 1, key="h_wd_e")
             h_wd_n = c3.number_input("N", 0, 10, 1, key="h_wd_n")
             h_wd_48 = c4.number_input("4-8", 0, 10, 1, key="h_wd_48")
-            
             st.write("【週六】")
             c1, c2, c3, c4 = st.columns(4)
             h_sa_d = c1.number_input("D", 0, 10, 1, key="h_sa_d")
             h_sa_e = c2.number_input("E", 0, 10, 1, key="h_sa_e")
             h_sa_n = c3.number_input("N", 0, 10, 1, key="h_sa_n")
             h_sa_812 = c4.number_input("8-12", 0, 10, 1, key="h_sa_812")
-            
             st.write("【週日 / 國定假日】")
             c1, c2, c3 = st.columns(3)
             h_su_d = c1.number_input("D ", 0, 10, 1, key="h_su_d")
@@ -110,10 +103,8 @@ with st.sidebar:
 
         with tab_p:
             p_split_enable = st.checkbox("🔄 啟用【平日 (一~四)】分段人力切換")
-            
             if p_split_enable:
                 p_split_day = st.number_input("設定切換日期 (此日開始套用新設定)", 2, 31, 10)
-                
                 st.markdown(f"**📌 1 號 ~ {p_split_day-1} 號 (平日 一~四)**")
                 c1, c2, c3, c4, c5 = st.columns(5)
                 p_mth_d_1 = c1.number_input("D", 0, 10, 3, key="p_d1")
@@ -121,7 +112,6 @@ with st.sidebar:
                 p_mth_n_1 = c3.number_input("N", 0, 10, 2, key="p_n1")
                 p_mth_48_1 = c4.number_input("4-8", 0, 10, 0, key="p_48_1")
                 p_mth_128_1 = c5.number_input("12-8", 0, 10, 1, key="p_128_1")
-
                 st.markdown(f"**📌 {p_split_day} 號 ~ 月底 (平日 一~四)**")
                 c1, c2, c3, c4, c5 = st.columns(5)
                 p_mth_d_2 = c1.number_input("D", 0, 10, 4, key="p_d2")
@@ -156,12 +146,11 @@ with st.sidebar:
     with st.expander("📁 Excel 智慧匯入/匯出", expanded=False):
         st.write("**第一步：下載公版 (含目前設定)**")
         template_data = []
-        
-        date_row = {"姓名": "日期", "屬性": "", "上月最後班": "", "月底連上天數": ""}
+        date_row = {"姓名": "日期", "屬性": "", "作息偏好": "", "上月最後班": "", "月底連上天數": ""}
         for d in range(1, num_days + 1): date_row[str(d)] = f"{month}/{d}"
         template_data.append(date_row)
         
-        week_row = {"姓名": "星期", "屬性": "", "上月最後班": "", "月底連上天數": ""}
+        week_row = {"姓名": "星期", "屬性": "", "作息偏好": "", "上月最後班": "", "月底連上天數": ""}
         weekdays_map = {0: '一', 1: '二', 2: '三', 3: '四', 4: '五', 5: '六', 6: '日'}
         for d in range(1, num_days + 1): week_row[str(d)] = weekdays_map[calendar.weekday(year, month, d)]
         template_data.append(week_row)
@@ -170,6 +159,7 @@ with st.sidebar:
             row = {
                 "姓名": n,
                 "屬性": st.session_state.fixed.get(n, "無 (三班混合)"),
+                "作息偏好": st.session_state.work_style.get(n, "預設 (跟隨左側)"),
                 "上月最後班": st.session_state.prev_status.get(n, {}).get("shift", "Off"),
                 "月底連上天數": st.session_state.prev_streak.get(n, 0)
             }
@@ -179,25 +169,21 @@ with st.sidebar:
             
         df_template = pd.DataFrame(template_data)
         output_template = io.BytesIO()
-        
         with pd.ExcelWriter(output_template, engine='xlsxwriter') as writer:
             df_template.to_excel(writer, index=False, sheet_name='預班表')
             workbook = writer.book
             worksheet = writer.sheets['預班表']
-            
             weekend_format = workbook.add_format({'bg_color': '#FFF2CC', 'align': 'center'}) 
             weekday_format = workbook.add_format({'align': 'center'})
-            
             worksheet.set_column('A:A', 14)
-            worksheet.set_column('B:B', 12)
-            worksheet.set_column('C:D', 10) 
-            
+            worksheet.set_column('B:D', 14) 
+            worksheet.set_column('E:F', 10) 
             for d in range(1, num_days + 1):
                 wd = calendar.weekday(year, month, d)
-                col_idx = 3 + d 
+                col_idx = 4 + d 
                 if wd >= 5: worksheet.set_column(col_idx, col_idx, 6, weekend_format)
                 else: worksheet.set_column(col_idx, col_idx, 6, weekday_format)
-            worksheet.freeze_panes(2, 4)
+            worksheet.freeze_panes(2, 5)
             
         st.download_button("📥 下載 Excel 預班表", output_template.getvalue(), f"{year}年{month}月_打碼預班表.xlsx", type="primary", use_container_width=True)
         
@@ -209,11 +195,9 @@ with st.sidebar:
                 try:
                     if uploaded_file.name.endswith('.csv'): df_in = pd.read_csv(uploaded_file)
                     else: df_in = pd.read_excel(uploaded_file)
-                    
                     df_in.columns = df_in.columns.astype(str).str.strip()
                     df_in = df_in.fillna("")
                     not_found_names = [] 
-                    
                     for index, row in df_in.iterrows():
                         name = str(row.get("姓名", "")).strip()
                         if not name or "星期" in name or "日期" in name or "總計" in name or "小計" in name or "血腫" in name and "組" in name or "安寧" in name and "組" in name or "護理長" in name and "】" in name: 
@@ -236,6 +220,13 @@ with st.sidebar:
                             else: new_fix = "無 (三班混合)"
                             st.session_state.fixed[name] = new_fix
                             st.session_state[f"fix_{name}"] = new_fix 
+
+                        style_col = "作息偏好" if "作息偏好" in df_in.columns else ("作息" if "作息" in df_in.columns else None)
+                        if style_col:
+                            s_val = str(row[style_col]).strip()
+                            if "長" in s_val or "衝" in s_val: st.session_state.work_style[name] = "衝刺長假型 (可連上6/休無上限)"
+                            elif "短" in s_val or "養" in s_val: st.session_state.work_style[name] = "養生短打型 (最多連上4/休3)"
+                            else: st.session_state.work_style[name] = "預設 (跟隨左側)"
                         
                         last_col = "上月" if "上月" in df_in.columns else ("上月最後班" if "上月最後班" in df_in.columns else None)
                         if last_col:
@@ -264,7 +255,6 @@ with st.sidebar:
                         for d in range(1, num_days + 1):
                             col_str = str(d)
                             date_col_str = f"{month}/{d}"
-                            
                             val = ""
                             if col_str in df_in.columns: val = str(row[col_str]).strip().upper()
                             elif date_col_str in df_in.columns: val = str(row[date_col_str]).strip().upper()
@@ -282,14 +272,12 @@ with st.sidebar:
                                 elif val in ['支-E', '支援小', '支E', 'ND-E', 'NDE']: val = '支-E'
                                 elif val in ['支-N', '支援大夜', '支N', '支大夜', 'ND-N', 'NDN']: val = '支-N'
                                 elif val in ['D/E', 'DE', 'D或E']: val = 'D/E' 
-                                elif val in ['E/4-8', 'E/48']: val = 'E/4-8'
+                                elif val in ['E/4-8', 'E/48']: val = 'E/4-8' 
                                 elif val in ['勿N', '不N', '非N', '-N']: val = '勿N'
                                 elif val in ['勿D', '不D', '非D', '-D']: val = '勿D'
                                 elif val in ['勿E', '不E', '非E', '-E']: val = '勿E'
-                                
                                 if val in SHIFTS or val in ['D/E', 'E/4-8', '勿N', '勿D', '勿E']:
                                     st.session_state.daily_shifts[name][d] = val
-                    
                     if not_found_names: st.error(f"🚨 警告！Excel 裡這些名字對不上：{', '.join(not_found_names)}")
                     else: st.success("✅ 匯入成功！")
                 except Exception as e:
@@ -324,23 +312,20 @@ with st.sidebar:
 
     st.write("---")
     st.write("⚖️ **核心排班規則設定**")
-    
     col1, col2 = st.columns(2)
     min_off_days = col1.number_input("📉 最少休假天數", 0, 31, 6)
     max_off_days = col2.number_input("📈 最多休假天數", 0, 31, 10)
-    
     allowed_off_gap = st.slider("⚖️ 1. 允許休假天數最大落差 (增加彈性)", 0, 10, 4)
     allow_iso_work = st.checkbox("🌟 2. 允許單日上班 (增加排班彈性)", value=True)
     shift_consistency_weight = st.slider("🔀 3. 班別一致性 (同段班不換班)", 0, 1000, 500)
     anti_frag_weight = st.slider("🛡️ 4. 護肝指數 (盡量避免單日休假)", 0, 500, 200)
-    soft_max_streak = st.slider("💡 5. 期望最多連上天數", 3, 7, 4)
-    hard_max_streak = st.slider("🛑 6. 絕對極限連上天數", 3, 7, 5)
-    balance_48_weight = st.slider("⚖️ 7. 平均分配 4-8 班次 (避免全部塞給同一人)", 0, 1000, 500)
-    max_cons_off = st.slider("🏖️ 8. 最多連休天數 (把休假打散)", 2, 10, 4) # 🔥 新增最多連休防護
     
+    soft_max_streak = st.slider("💡 5. 全域期望最多連上天數", 3, 7, 4)
+    hard_max_streak = st.slider("🛑 6. 全域絕對極限連上天數", 3, 7, 5)
+    max_cons_off = st.slider("🏖️ 7. 全域最多連休天數 (把休假打散)", 2, 10, 4) 
+    balance_48_weight = st.slider("⚖️ 8. 平均分配 4-8 班次 (避免全部塞給同一人)", 0, 1000, 500)
     st.info("🎯 9. 包班最低達標天數 (鐵血保證)：已由系統固定為 15 天")
     min_bonus_days = 15
-    
     holiday_dates = st.multiselect("🎈 10. 勾選國定假日", list(range(1, num_days+1)))
 
     st.write("---")
@@ -356,28 +341,31 @@ def render_staff_card(name, year, month, is_hn=False):
     
     with st.expander(f"{icon} {name}  |  狀態: {fix_status}", expanded=False):
         if not is_hn:
-            c1, c2, c3 = st.columns([1, 1, 1.2])
+            c1, c2, c3, c4 = st.columns([1, 1, 1.3, 1.3])
             with c1:
-                if f"ps_{name}" not in st.session_state:
-                    st.session_state[f"ps_{name}"] = st.session_state.prev_status.get(name, {}).get('shift', 'Off')
-                new_s = st.selectbox("上月最後一天", ['Off', 'D', 'E', 'N', 'L', '支-D', '支-E', '支-N'], key=f"ps_{name}")
+                if f"ps_{name}" not in st.session_state: st.session_state[f"ps_{name}"] = st.session_state.prev_status.get(name, {}).get('shift', 'Off')
+                new_s = st.selectbox("上月最後天", ['Off', 'D', 'E', 'N', 'L', '支-D', '支-E', '支-N'], key=f"ps_{name}")
                 st.session_state.prev_status[name] = {'shift': new_s}
             with c2:
-                if f"streak_{name}" not in st.session_state:
-                    st.session_state[f"streak_{name}"] = st.session_state.prev_streak.get(name, 0)
+                if f"streak_{name}" not in st.session_state: st.session_state[f"streak_{name}"] = st.session_state.prev_streak.get(name, 0)
                 st.session_state.prev_streak[name] = st.number_input("月底連上天數", 0, 15, key=f"streak_{name}")
             with c3:
-                opts = ["無 (三班混合)", "混合 (D+E)", "混合 (E+N)", "混合 (D+N)", "固定白 (D)", "固定小 (E)", "固定大 (N)", "新人 (純白班)", "前D後E"]
+                opts_f = ["無 (三班混合)", "混合 (D+E)", "混合 (E+N)", "混合 (D+N)", "固定白 (D)", "固定小 (E)", "固定大 (N)", "新人 (純白班)", "前D後E"]
                 if f"fix_{name}" not in st.session_state:
                     cur = st.session_state.fixed.get(name, "無 (三班混合)")
-                    st.session_state[f"fix_{name}"] = cur if cur in opts else "無 (三班混合)"
-                st.session_state.fixed[name] = st.selectbox("本月固定班", opts, key=f"fix_{name}")
+                    st.session_state[f"fix_{name}"] = cur if cur in opts_f else "無 (三班混合)"
+                st.session_state.fixed[name] = st.selectbox("本月固定班", opts_f, key=f"fix_{name}")
+            with c4:
+                opts_style = ["預設 (跟隨左側)", "衝刺長假型 (可連上6/休無上限)", "養生短打型 (最多連上4/休3)"]
+                if f"ws_{name}" not in st.session_state:
+                    cur_ws = st.session_state.work_style.get(name, "預設 (跟隨左側)")
+                    st.session_state[f"ws_{name}"] = cur_ws if cur_ws in opts_style else "預設 (跟隨左側)"
+                st.session_state.work_style[name] = st.selectbox("休假作息偏好", opts_style, key=f"ws_{name}")
 
         st.divider()
         cols = st.columns(7)
         for i, w in enumerate(['一', '二', '三', '四', '五', '六', '日']):
             cols[i].markdown(f"<div style='text-align: center; color: gray; font-size: 0.8em'>{w}</div>", unsafe_allow_html=True)
-        
         for week in calendar.monthcalendar(year, month):
             cols = st.columns(7)
             for i, day in enumerate(week):
@@ -398,76 +386,66 @@ with tab_heme:
 with tab_pall:
     for name in pall_staff: render_staff_card(name, year, month)
     st.divider()
-    st.subheader("👩‍⚕️ 護理長 (完全獨立手動排班)")
+    st.subheader("👩‍⚕️ 護理長 (手動排班)")
     render_staff_card(hn_name, year, month, is_hn=True)
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (啟動休假均勻打散防護)"):
+        with st.spinner("神經網路運算中... (啟動個人作息偏好與極限防護)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
-            
             for n in active_staff:
                 for d in range(1, num_days+1):
                     for s in range(len(SHIFTS)):
                         work[(n,d,s)] = model.NewBoolVar(f'w_{n}_{d}_{s}')
                     model.Add(sum(work[(n,d,s)] for s in range(len(SHIFTS))) == 1)
 
-            fragmentation_penalties = []
-            shift_changes = [] 
-            streak_penalties = []
+            fragmentation_penalties, shift_changes, streak_penalties = [], [], []
 
             for n in active_staff:
                 user_shifts = st.session_state.daily_shifts.get(n, {})
                 f_type = st.session_state.fixed.get(n, "")
+                p_style = st.session_state.work_style.get(n, "預設 (跟隨左側)")
                 
+                # --- 個人化作息參數解析 (最高連上 6 天) ---
+                if "長假" in p_style or "衝刺" in p_style:
+                    p_hard_max = 6
+                    p_soft_max = 5
+                    p_max_off = num_days 
+                elif "短打" in p_style or "養生" in p_style:
+                    p_hard_max = 4
+                    p_soft_max = 3
+                    p_max_off = 3
+                else:
+                    p_hard_max = hard_max_streak
+                    p_soft_max = soft_max_streak
+                    p_max_off = max_cons_off
+
+                # 手動與彈性防護
                 for d, s_val in user_shifts.items():
-                    if s_val in SHIFTS:
-                        model.Add(work[(n, d, SHIFTS.index(s_val))] == 1)
-                    elif s_val == 'D/E':
-                        allowed_indices = [SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), SHIFTS.index('4-8')]
-                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
-                    elif s_val == 'E/4-8':
-                        allowed_indices = [SHIFTS.index('E'), SHIFTS.index('4-8')]
-                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
-                    elif s_val == '勿N':
-                        allowed_indices = [
-                            SHIFTS.index('D'), SHIFTS.index('E'), SHIFTS.index('12-8'), 
-                            SHIFTS.index('4-8'), SHIFTS.index('8-12'), SHIFTS.index('1-8'), 
-                            SHIFTS.index('L'), SHIFTS.index('支-D'), SHIFTS.index('支-E')
-                        ]
-                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
-                    elif s_val == '勿D':
-                        allowed_indices = [
-                            SHIFTS.index('E'), SHIFTS.index('N'), SHIFTS.index('12-8'), 
-                            SHIFTS.index('4-8'), SHIFTS.index('1-8'), 
-                            SHIFTS.index('支-E'), SHIFTS.index('支-N')
-                        ]
-                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
-                    elif s_val == '勿E':
-                        allowed_indices = [
-                            SHIFTS.index('D'), SHIFTS.index('N'), SHIFTS.index('8-12'), 
-                            SHIFTS.index('L'), SHIFTS.index('支-D'), SHIFTS.index('支-N')
-                        ]
-                        model.Add(sum(work[(n, d, idx)] for idx in allowed_indices) == 1)
+                    if s_val in SHIFTS: model.Add(work[(n, d, SHIFTS.index(s_val))] == 1)
+                    elif s_val == 'D/E': model.Add(sum(work[(n, d, i)] for i in [1, 2, 4, 5]) == 1)
+                    elif s_val == 'E/4-8': model.Add(sum(work[(n, d, i)] for i in [2, 5]) == 1)
+                    elif s_val == '勿N': model.Add(sum(work[(n, d, i)] for i in [1, 2, 4, 5, 6, 7, 10, 11, 12]) == 1)
+                    elif s_val == '勿D': model.Add(sum(work[(n, d, i)] for i in [2, 3, 4, 5, 7, 12, 13]) == 1)
+                    elif s_val == '勿E': model.Add(sum(work[(n, d, i)] for i in [1, 3, 6, 10, 11, 13]) == 1)
                 
                 for d in range(1, num_days+1):
                     manual_shift = user_shifts.get(d)
                     if manual_shift != 'M': model.Add(work[(n, d, SHIFTS.index('M'))] == 0)
                     if manual_shift != '公': model.Add(work[(n, d, SHIFTS.index('公'))] == 0)
-                    
                     if manual_shift not in ['支-D', '支-E', '支-N']:
                         model.Add(work[(n, d, SHIFTS.index('支-D'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('支-E'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('支-N'))] == 0)
-
                     if n in heme_staff and manual_shift not in ['12-8', '1-8', 'D/E', 'E/4-8', '勿N', '勿D', '勿E']:
                         model.Add(work[(n, d, SHIFTS.index('12-8'))] == 0)
                         model.Add(work[(n, d, SHIFTS.index('1-8'))] == 0)
                     if n in pall_staff and manual_shift != '8-12':
                         model.Add(work[(n, d, SHIFTS.index('8-12'))] == 0)
 
+                # 跨月規則
                 last_shift = st.session_state.prev_status.get(n, {}).get('shift', 'Off')
                 if 1 not in user_shifts:
                     if last_shift in ['E', '支-E']:
@@ -504,29 +482,26 @@ with tab_run:
                                 for s_idx in [1, 3, 6, 8, 9, 10, 11, 13]: model.Add(work[(n,d,s_idx)]==0)
                 elif "混合 (D+E)" in f_type:
                     for d in range(1, num_days+1):
-                        if d not in user_shifts:
-                            for s_idx in [3, SHIFTS.index('支-N')]: model.Add(work[(n,d,s_idx)]==0)
+                        if d not in user_shifts: model.Add(work[(n,d,3)]==0); model.Add(work[(n,d,13)]==0)
                 elif "混合 (E+N)" in f_type:
                     for d in range(1, num_days+1):
-                        if d not in user_shifts:
-                            for s_idx in [1, 6, 10, SHIFTS.index('支-D')]: model.Add(work[(n,d,s_idx)]==0)
+                        if d not in user_shifts: model.Add(work[(n,d,1)]==0); model.Add(work[(n,d,10)]==0); model.Add(work[(n,d,11)]==0)
                 elif "混合 (D+N)" in f_type:
                     for d in range(1, num_days+1):
-                        if d not in user_shifts:
-                            for s_idx in [2, 4, 5, 7, SHIFTS.index('支-E')]: model.Add(work[(n,d,s_idx)]==0)
+                        if d not in user_shifts: model.Add(work[(n,d,2)]==0); model.Add(work[(n,d,4)]==0); model.Add(work[(n,d,5)]==0); model.Add(work[(n,d,12)]==0)
 
+                # 班別順序防護
                 for d in range(1, num_days):
                     if d in user_shifts and (d+1) in user_shifts and user_shifts[d] not in ['D/E', 'E/4-8', '勿N', '勿D', '勿E'] and user_shifts[d+1] not in ['D/E', 'E/4-8', '勿N', '勿D', '勿E']: 
                         continue 
                     for day_shift in [1, 6, 8, 9, 10]: 
                         model.Add(work[(n, d, 2)] + work[(n, d+1, day_shift)] <= 1)
-                        model.Add(work[(n, d, SHIFTS.index('支-E'))] + work[(n, d+1, day_shift)] <= 1)
+                        model.Add(work[(n, d, 12)] + work[(n, d+1, day_shift)] <= 1)
                         model.Add(work[(n, d, 3)] + work[(n, d+1, day_shift)] <= 1)
-                        model.Add(work[(n, d, SHIFTS.index('支-N'))] + work[(n, d+1, day_shift)] <= 1)
-
-                    for prev_shift in [1, 2, 4, 5, 6, 7, 8, 9, 10, SHIFTS.index('支-D'), SHIFTS.index('支-E')]:
+                        model.Add(work[(n, d, 13)] + work[(n, d+1, day_shift)] <= 1)
+                    for prev_shift in [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
                         model.Add(work[(n, d, prev_shift)] + work[(n, d+1, 3)] <= 1)
-                        model.Add(work[(n, d, prev_shift)] + work[(n, d+1, SHIFTS.index('支-N'))] <= 1)
+                        model.Add(work[(n, d, prev_shift)] + work[(n, d+1, 13)] <= 1)
 
                 for d in range(1, num_days):
                     for s1 in range(1, len(SHIFTS)):
@@ -536,8 +511,8 @@ with tab_run:
                                 model.Add(change_var >= work[(n, d, s1)] + work[(n, d+1, s2)] - 1)
                                 shift_changes.append(change_var)
 
-                # 🔥 限制連續上班天數 🔥
-                window_size = hard_max_streak + 1
+                # 🔥 個人化限制連續上班天數 🔥
+                window_size = p_hard_max + 1
                 for d in range(1, num_days - window_size + 2):
                     manual_violation = True
                     for k in range(window_size):
@@ -549,10 +524,9 @@ with tab_run:
 
                 prev_streak = st.session_state.prev_streak.get(n, 0)
                 if prev_streak > 0:
-                    limit = hard_max_streak - prev_streak
+                    limit = p_hard_max - prev_streak
                     window_end = max(1, limit + 1) 
                     window_end = min(window_end, num_days)
-                    
                     manual_violation = True
                     for k in range(1, window_end + 1):
                         if user_shifts.get(k) == 'Off' or k not in user_shifts:
@@ -561,22 +535,23 @@ with tab_run:
                     if not manual_violation:
                         model.Add(sum(work[(n, k, 0)] for k in range(1, window_end + 1)) >= 1)
 
-                # 🔥 限制連續休假天數 (打散休假防護網) 🔥
-                off_window = max_cons_off + 1
-                for d in range(1, num_days - off_window + 2):
-                    manual_off_count = sum(1 for k in range(off_window) if user_shifts.get(d+k) == 'Off')
-                    if manual_off_count < off_window: # 除非學姊手動排了超長連休，否則強制啟動打散防護
-                        model.Add(sum(work[(n, d+k, 0)] for k in range(off_window)) <= max_cons_off)
+                # 🔥 個人化限制連續休假天數 🔥
+                off_window = p_max_off + 1
+                if off_window <= num_days:
+                    for d in range(1, num_days - off_window + 2):
+                        manual_off_count = sum(1 for k in range(off_window) if user_shifts.get(d+k) == 'Off')
+                        if manual_off_count < off_window: 
+                            model.Add(sum(work[(n, d+k, 0)] for k in range(off_window)) <= p_max_off)
 
-                if soft_max_streak < hard_max_streak:
-                    soft_window = soft_max_streak + 1
+                if p_soft_max < p_hard_max:
+                    soft_window = p_soft_max + 1
                     for d in range(1, num_days - soft_window + 2):
                         pen = model.NewBoolVar(f'streak_pen_{n}_{d}')
                         model.AddBoolOr([work[(n, d+k, 0)] for k in range(soft_window)] + [pen])
                         streak_penalties.append(pen)
                         
                     if prev_streak > 0:
-                        k_days = soft_max_streak - prev_streak + 1
+                        k_days = p_soft_max - prev_streak + 1
                         if 1 <= k_days <= num_days:
                             pen = model.NewBoolVar(f'prev_streak_pen_{n}')
                             model.AddBoolOr([work[(n, k, 0)] for k in range(1, k_days + 1)] + [pen])
@@ -588,11 +563,11 @@ with tab_run:
 
                 # 包班保證
                 allowed_bonus = []
-                if "白" in f_type and "新" not in f_type: allowed_bonus = [1, 10, SHIFTS.index('支-D')]
-                elif "固定小" in f_type: allowed_bonus = [2, 4, 5, 7, SHIFTS.index('支-E')] 
-                elif "固定大" in f_type: allowed_bonus = [3, SHIFTS.index('支-N')]
-                elif "新" in f_type: allowed_bonus = [1, 10, SHIFTS.index('支-D')] 
-                elif "前D後E" in f_type: allowed_bonus = [1, 2, 4, 5, 7, 10, SHIFTS.index('支-D'), SHIFTS.index('支-E')]
+                if "白" in f_type and "新" not in f_type: allowed_bonus = [1, 10, 11]
+                elif "固定小" in f_type: allowed_bonus = [2, 4, 5, 7, 12] 
+                elif "固定大" in f_type: allowed_bonus = [3, 13]
+                elif "新" in f_type: allowed_bonus = [1, 10, 11] 
+                elif "前D後E" in f_type: allowed_bonus = [1, 2, 4, 5, 7, 10, 11, 12]
                 
                 if allowed_bonus:
                     max_possible = 0
@@ -602,10 +577,8 @@ with tab_run:
                             max_possible += 1
                         elif s_v in SHIFTS and SHIFTS.index(s_v) in allowed_bonus:
                             max_possible += 1
-                    
                     target = min(min_bonus_days, max_possible)
-                    if target > 0:
-                        model.Add(sum(work[(n,d,s)] for d in range(1, num_days+1) for s in allowed_bonus) >= target)
+                    if target > 0: model.Add(sum(work[(n,d,s)] for d in range(1, num_days+1) for s in allowed_bonus) >= target)
 
                 W = []
                 W.append(0 if last_shift == 'Off' else 1) 
@@ -622,7 +595,6 @@ with tab_run:
                     iso_off = model.NewBoolVar(f'iso_off_{n}_{d}')
                     model.Add(iso_off >= W[d-1] - W[d] + W[d+1] - 1)
                     fragmentation_penalties.append(iso_off)
-                    
                     if not allow_iso_work:
                         iso_work = model.NewBoolVar(f'iso_work_{n}_{d}')
                         model.Add(iso_work >= -W[d-1] + W[d] - W[d+1])
@@ -630,12 +602,12 @@ with tab_run:
 
             max_48_var = model.NewIntVar(0, 31, 'max_48')
             for n in active_staff:
-                n_48_count = sum(work[(n, d, SHIFTS.index('4-8'))] for d in range(1, num_days+1))
+                n_48_count = sum(work[(n, d, 5)] for d in range(1, num_days+1))
                 model.Add(max_48_var >= n_48_count)
 
             if newbie_list:
-                e_shifts = [SHIFTS.index(s) for s in ['E', '12-8', '4-8', '支-E'] if s in list(SHIFTS)]
-                n_shifts = [SHIFTS.index(s) for s in ['N', '支-N'] if s in list(SHIFTS)]
+                e_shifts = [2, 4, 5, 12]
+                n_shifts = [3, 13]
                 for d in range(1, num_days+1):
                     model.Add(sum(work[(n, d, s_idx)] for n in newbie_list if n in active_staff for s_idx in e_shifts) <= 1)
                     model.Add(sum(work[(n, d, s_idx)] for n in newbie_list if n in active_staff for s_idx in n_shifts) <= 1)
@@ -644,27 +616,20 @@ with tab_run:
             surplus_vars = [] 
             
             def get_dynamic_demands(staff_list, newbies_in_unit, day_d, b_d, b_e, b_n, b_48, b_128, b_812):
-                if not newbies_in_unit:
-                    return b_d, b_e, b_n, b_48, b_128, b_812
-                    
-                rookie_e_count = sum(work[(n, day_d, s)] for n in newbies_in_unit for s in [SHIFTS.index('E'), SHIFTS.index('支-E')])
-                rookie_n_count = sum(work[(n, day_d, s)] for n in newbies_in_unit for s in [SHIFTS.index('N'), SHIFTS.index('支-N')])
+                if not newbies_in_unit: return b_d, b_e, b_n, b_48, b_128, b_812
+                rookie_e_count = sum(work[(n, day_d, s)] for n in newbies_in_unit for s in [2, 12])
+                rookie_n_count = sum(work[(n, day_d, s)] for n in newbies_in_unit for s in [3, 13])
                 rookie_total = rookie_e_count + rookie_n_count
-
                 dyn_e = model.NewIntVar(0, 30, f'dyn_e_{id(staff_list)}_{day_d}')
                 model.Add(dyn_e == b_e + rookie_e_count)
-
                 dyn_n = model.NewIntVar(0, 30, f'dyn_n_{id(staff_list)}_{day_d}')
                 model.Add(dyn_n == b_n + rookie_n_count)
-
                 is_tr = model.NewBoolVar(f'is_tr_{id(staff_list)}_{day_d}')
                 model.Add(rookie_total > 0).OnlyEnforceIf(is_tr)
                 model.Add(rookie_total == 0).OnlyEnforceIf(is_tr.Not())
-
                 dyn_48 = model.NewIntVar(0, 30, f'dyn_48_{id(staff_list)}_{day_d}')
                 model.Add(dyn_48 == 0).OnlyEnforceIf(is_tr)
                 model.Add(dyn_48 == b_48).OnlyEnforceIf(is_tr.Not())
-
                 return b_d, dyn_e, dyn_n, dyn_48, b_128, b_812
 
             def add_exact_demand(staff_list, day, shift_indices, target_count):
@@ -677,7 +642,6 @@ with tab_run:
 
             leader_shortfalls = []
             valid_seniors = list(set([n for n in heme_seniors if n in heme_staff] + [n for n in pall_seniors if n in pall_staff]))
-            
             newbies_h = [n for n in newbie_list if n in heme_staff]
             newbies_p = [n for n in newbie_list if n in pall_staff]
 
@@ -686,60 +650,42 @@ with tab_run:
                 is_holiday = (d in holiday_dates)
                 is_weekday = (wd < 5) 
                 
-                # --- 🩸 血腫組需求 ---
-                if wd < 5 and not is_holiday:
-                    base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_wd_d, h_wd_e, h_wd_n, h_wd_48, 0, 0
-                elif wd == 5 and not is_holiday:
-                    base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_sa_d, h_sa_e, h_sa_n, 0, 0, h_sa_812
-                else:
-                    base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_su_d, h_su_e, h_su_n, 0, 0, 0
+                # --- 血腫組 ---
+                if wd < 5 and not is_holiday: base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_wd_d, h_wd_e, h_wd_n, h_wd_48, 0, 0
+                elif wd == 5 and not is_holiday: base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_sa_d, h_sa_e, h_sa_n, 0, 0, h_sa_812
+                else: base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_su_d, h_su_e, h_su_n, 0, 0, 0
 
                 manual_h_e = sum(1 for n in heme_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['E', '支-E'])
                 manual_h_n = sum(1 for n in heme_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['N', '支-N'])
-                
-                if manual_h_e > base_h_e:
-                    base_h_e = manual_h_e
-                    base_h_48 = 0
-                if manual_h_n > base_h_n:
-                    base_h_n = manual_h_n
-                    base_h_48 = 0
+                if manual_h_e > base_h_e: base_h_e, base_h_48 = manual_h_e, 0
+                if manual_h_n > base_h_n: base_h_n, base_h_48 = manual_h_n, 0
 
                 h_d, h_e, h_n, h_48, h_128, h_812 = get_dynamic_demands(heme_staff, newbies_h, d, base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812)
-
                 if base_h_d > 0: add_exact_demand(heme_staff, d, [1], h_d)
                 add_exact_demand(heme_staff, d, [2], h_e)
                 add_exact_demand(heme_staff, d, [3], h_n)
                 if base_h_48 > 0: add_exact_demand(heme_staff, d, [5], h_48)
                 if base_h_812 > 0: add_exact_demand(heme_staff, d, [6], h_812)
 
-                # --- 🕊️ 安寧組需求 ---
+                # --- 安寧組 ---
                 if is_weekday and not is_holiday:
-                    if wd == 4:
-                        base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_f_d, p_f_e, p_f_n, p_f_48, p_f_128
+                    if wd == 4: base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_f_d, p_f_e, p_f_n, p_f_48, p_f_128
                     else:
                         if p_split_enable:
-                            base_p_d  = p_mth_d_1  if d < p_split_day else p_mth_d_2
-                            base_p_e  = p_mth_e_1  if d < p_split_day else p_mth_e_2
-                            base_p_n  = p_mth_n_1  if d < p_split_day else p_mth_n_2
+                            base_p_d = p_mth_d_1 if d < p_split_day else p_mth_d_2
+                            base_p_e = p_mth_e_1 if d < p_split_day else p_mth_e_2
+                            base_p_n = p_mth_n_1 if d < p_split_day else p_mth_n_2
                             base_p_48 = p_mth_48_1 if d < p_split_day else p_mth_48_2
                             base_p_128 = p_mth_128_1 if d < p_split_day else p_mth_128_2
-                        else:
-                            base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_128
-                else: 
-                    base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_we_d, p_we_e, p_we_n, 0, 0
+                        else: base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_mth_d, p_mth_e, p_mth_n, p_mth_48, p_mth_128
+                else: base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_we_d, p_we_e, p_we_n, 0, 0
 
                 manual_p_e = sum(1 for n in pall_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['E', '支-E'])
                 manual_p_n = sum(1 for n in pall_staff if st.session_state.daily_shifts.get(n, {}).get(d) in ['N', '支-N'])
-                
-                if manual_p_e > base_p_e:
-                    base_p_e = manual_p_e
-                    base_p_48 = 0
-                if manual_p_n > base_p_n:
-                    base_p_n = manual_p_n
-                    base_p_48 = 0
+                if manual_p_e > base_p_e: base_p_e, base_p_48 = manual_p_e, 0
+                if manual_p_n > base_p_n: base_p_n, base_p_48 = manual_p_n, 0
 
                 p_d, p_e, p_n, p_48, p_128, _ = get_dynamic_demands(pall_staff, newbies_p, d, base_p_d, base_p_e, base_p_n, base_p_48, base_p_128, 0)
-
                 if base_p_d > 0: add_exact_demand(pall_staff, d, [1], p_d)
                 add_exact_demand(pall_staff, d, [2], p_e)
                 add_exact_demand(pall_staff, d, [3], p_n)
@@ -750,17 +696,14 @@ with tab_run:
                     for n in active_staff:
                         if n not in valid_seniors and st.session_state.daily_shifts.get(n, {}).get(d) != 'L':
                             model.Add(work[(n, d, 10)] == 0)
-                    
                     manual_L = sum(1 for n in active_staff if st.session_state.daily_shifts.get(n, {}).get(d) == 'L')
                     model.Add(sum(work[(n, d, 10)] for n in active_staff) <= max(1, manual_L))
-                    
                     sf_l = model.NewIntVar(0, 1, f'sf_l_{d}')
                     model.Add(sum(work[(n, d, 10)] for n in valid_seniors) + sf_l >= 1)
                     leader_shortfalls.append((d, sf_l))
                 else:
                     for n in active_staff:
-                        if st.session_state.daily_shifts.get(n, {}).get(d) != 'L':
-                            model.Add(work[(n, d, 10)] == 0)
+                        if st.session_state.daily_shifts.get(n, {}).get(d) != 'L': model.Add(work[(n, d, 10)] == 0)
 
             max_off_var = model.NewIntVar(0, 31, 'max_off')
             min_off_var = model.NewIntVar(0, 31, 'min_off')
@@ -769,33 +712,23 @@ with tab_run:
                 preset_offs = sum(1 for d, s in st.session_state.daily_shifts.get(n, {}).items() if s == 'Off')
                 personal_min_off = max(min_off_days, preset_offs)
                 personal_max_off = max(max_off_days, preset_offs)
-                
-                model.Add(offs >= personal_min_off)
-                model.Add(offs <= personal_max_off)
-                
-                model.Add(max_off_var >= offs)
-                model.Add(min_off_var <= offs)
+                model.Add(offs >= personal_min_off); model.Add(offs <= personal_max_off)
+                model.Add(max_off_var >= offs); model.Add(min_off_var <= offs)
             
             fairness_gap = max_off_var - min_off_var
             excess_gap = model.NewIntVar(0, 31, 'excess_gap')
             model.Add(excess_gap >= fairness_gap - allowed_off_gap)
 
             total_offs = sum(work[(n,d,0)] for n in active_staff for d in range(1, num_days+1))
-            total_shortfall_penalty = sum(sf for d, sf in shortfall_vars)
-            total_surplus_penalty = sum(surp for d, surp in surplus_vars) 
-            total_leader_penalty = sum(sf for d, sf in leader_shortfalls)
-            total_frag_penalty = sum(fragmentation_penalties) 
-            total_shift_change_penalty = sum(shift_changes) 
-            total_streak_penalty = sum(streak_penalties)
             
             model.Maximize(
                 total_offs * 10 
-                - total_shortfall_penalty * 1000000 
-                - total_surplus_penalty * 8000 
-                - total_leader_penalty * 500000
-                - total_shift_change_penalty * shift_consistency_weight 
-                - total_frag_penalty * anti_frag_weight 
-                - total_streak_penalty * 800  
+                - sum(sf for d, sf in shortfall_vars) * 1000000 
+                - sum(surp for d, surp in surplus_vars) * 8000 
+                - sum(sf for d, sf in leader_shortfalls) * 500000
+                - sum(shift_changes) * shift_consistency_weight 
+                - sum(fragmentation_penalties) * anti_frag_weight 
+                - sum(streak_penalties) * 800  
                 - excess_gap * 1000  
                 - fairness_gap * 5   
                 - max_48_var * balance_48_weight 
@@ -808,63 +741,37 @@ with tab_run:
             if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
                 shortfall_amount = int(sum(solver.Value(sf) for d, sf in shortfall_vars))
                 surplus_amount = int(sum(solver.Value(surp) for d, surp in surplus_vars))
+                daily_shortfalls = {d: (solver.Value(sf) > 0) for d, sf in shortfall_vars}
                 
-                daily_shortfalls = {d: False for d in range(1, num_days+1)}
-                for d, sf in shortfall_vars:
-                    if solver.Value(sf) > 0:
-                        daily_shortfalls[d] = True
-
-                unrescued_l = []
-                rescued_l = []
-                missing_staff_l = [d for d, sf in leader_shortfalls if solver.Value(sf) > 0]
-                
-                for d_day in missing_staff_l:
+                unrescued_l, rescued_l = [], []
+                missing_l_days = [d for d, sf in leader_shortfalls if solver.Value(sf) > 0]
+                for d_day in missing_l_days:
                     hn_shift = st.session_state.daily_shifts.get(hn_name, {}).get(d_day, 'Off')
                     if hn_shift in ['D', 'L']: rescued_l.append(str(d_day))
                     else: unrescued_l.append(str(d_day))
                 
-                missing_l_days = [d for d, sf in leader_shortfalls if solver.Value(sf) > 0]
-
                 if unrescued_l: st.error(f"🚨 **警告！缺 L 日期：**{', '.join(unrescued_l)} 號")
                 if rescued_l: st.warning(f"⚠️ **提示**：{', '.join(rescued_l)} 號由護理長親自上陣救援 L 班！")
                 
-                if shortfall_amount > 0: 
-                    st.error(f"🚨 嚴重警告！已達系統極限，仍有 {shortfall_amount} 個班次缺人。紅色標題日期為缺班日！")
-                elif surplus_amount > 0: 
-                    st.info(f"💡 班表出爐！本月有 {surplus_amount} 個班次多出人力。")
-                elif not unrescued_l: 
-                    st.success(f"✅ 完美報表產出！請滑動下方表格預覽，或下載 Excel！")
+                if shortfall_amount > 0: st.error(f"🚨 嚴重警告！已達系統極限，仍有 {shortfall_amount} 個班次缺人。紅色標題日期為缺班日！")
+                elif surplus_amount > 0: st.info(f"💡 班表出爐！本月有 {surplus_amount} 個班次多出人力。")
+                elif not unrescued_l: st.success(f"✅ 完美報表產出！請滑動下方表格預覽，或下載 Excel！")
                 
-                excel_data = []
-                ui_display_rows = [] 
-                
-                ui_columns = ['組別', '姓名', '屬性']
+                excel_data, ui_display_rows, ui_columns = [], [], ['組別', '姓名', '屬性']
                 for d in range(1, num_days+1):
-                    is_sf = daily_shortfalls[d]
-                    is_ml = (d in missing_l_days)
-                    if is_sf and is_ml:
-                        ui_columns.append(f"<div style='background-color:#E26B0A; color:white; padding:4px; border-radius:4px; text-align:center;'>{d}<br>缺班+L</div>")
-                    elif is_sf:
-                        ui_columns.append(f"<div style='background-color:#FFC7CE; color:#9C0006; padding:4px; border-radius:4px; text-align:center;'>{d}<br>缺班</div>")
-                    elif is_ml:
-                        ui_columns.append(f"<div style='background-color:#FFEB9C; color:#9C5700; padding:4px; border-radius:4px; text-align:center;'>{d}<br>缺L</div>")
-                    else:
-                        ui_columns.append(str(d))
+                    is_sf, is_ml = daily_shortfalls[d], (d in missing_l_days)
+                    if is_sf and is_ml: ui_columns.append(f"<div style='background-color:#E26B0A; color:white; padding:4px; border-radius:4px;'>{d}<br>缺班+L</div>")
+                    elif is_sf: ui_columns.append(f"<div style='background-color:#FFC7CE; color:#9C0006; padding:4px; border-radius:4px;'>{d}<br>缺班</div>")
+                    elif is_ml: ui_columns.append(f"<div style='background-color:#FFEB9C; color:#9C5700; padding:4px; border-radius:4px;'>{d}<br>缺L</div>")
+                    else: ui_columns.append(str(d))
                 ui_columns.extend(['OFF', 'N', 'E'])
                 
                 date_row = ['姓名', '屬性', '上月', '天數'] + [f"{month}/{d}" for d in range(1, num_days+1)] + ['OFF', 'N', 'E', '包班']
-                excel_data.append(date_row)
-                
                 weekdays_map = {0: '一', 1: '二', 2: '三', 3: '四', 4: '五', 5: '六', 6: '日'}
                 week_row = ['星期', '', '', ''] + [weekdays_map[calendar.weekday(year, month, d)] for d in range(1, num_days+1)] + ['', '', '', '']
-                excel_data.append(week_row)
+                excel_data.extend([date_row, week_row])
                 
-                groups = [
-                    ('🩸 【血腫組】', heme_staff, '血腫'),
-                    ('🕊️ 【安寧組】', pall_staff, '安寧'),
-                    ('👩‍⚕️ 【護理長】', [hn_name], '護理長')
-                ]
-                
+                groups = [('🩸 【血腫組】', heme_staff, '血腫'), ('🕊️ 【安寧組】', pall_staff, '安寧'), ('👩‍⚕️ 【護理長】', [hn_name], '護理長')]
                 global_n, global_d, global_e = [0.0]*num_days, [0.0]*num_days, [0.0]*num_days
                 stats = {}
                 
@@ -874,9 +781,7 @@ with tab_run:
                     
                     for n in staff_list:
                         user_pre_shifts = st.session_state.daily_shifts.get(n, {})
-                        row_shifts = []
-                        display_row = []
-                        
+                        row_shifts, display_row = [], []
                         for d_day_idx in range(num_days):
                             d = d_day_idx + 1
                             if n == hn_name: assigned = st.session_state.daily_shifts.get(n, {}).get(d, 'Off')
@@ -887,28 +792,19 @@ with tab_run:
                                         assigned = SHIFTS[s]
                                         break
                             row_shifts.append(assigned)
-                            
-                            if d in user_pre_shifts or (n == hn_name and assigned != 'Off'): 
-                                display_row.append(f"<span style='color:red; font-weight:bold;'>{assigned}</span>")
-                            else: 
-                                display_row.append(assigned)
+                            if d in user_pre_shifts or (n == hn_name and assigned != 'Off'): display_row.append(f"<span style='color:red; font-weight:bold;'>{assigned}</span>")
+                            else: display_row.append(assigned)
                             
                             if n != hn_name:
-                                if assigned == 'N': 
-                                    grp_n[d_day_idx] += 1; global_n[d_day_idx] += 1
-                                elif assigned in ['D', 'L']: 
-                                    grp_d[d_day_idx] += 1; global_d[d_day_idx] += 1
-                                elif assigned == '8-12':
-                                    grp_d[d_day_idx] += 0.5; global_d[d_day_idx] += 0.5
-                                elif assigned in ['E', '12-8']: 
-                                    grp_e[d_day_idx] += 1; global_e[d_day_idx] += 1
-                                elif assigned in ['4-8', '1-8']:
-                                    grp_e[d_day_idx] += 0.5; global_e[d_day_idx] += 0.5
+                                if assigned == 'N': grp_n[d_day_idx] += 1; global_n[d_day_idx] += 1
+                                elif assigned in ['D', 'L']: grp_d[d_day_idx] += 1; global_d[d_day_idx] += 1
+                                elif assigned == '8-12': grp_d[d_day_idx] += 0.5; global_d[d_day_idx] += 0.5
+                                elif assigned in ['E', '12-8']: grp_e[d_day_idx] += 1; global_e[d_day_idx] += 1
+                                elif assigned in ['4-8', '1-8']: grp_e[d_day_idx] += 0.5; global_e[d_day_idx] += 0.5
                         
                         f_type = st.session_state.fixed.get(n, "無 (三班混合)")
                         ps = st.session_state.prev_status.get(n, {}).get('shift', 'Off')
                         streak = st.session_state.prev_streak.get(n, 0)
-                        
                         off_count = row_shifts.count('Off')
                         n_count = row_shifts.count('N') + row_shifts.count('支-N')
                         e_count = fmt_num(row_shifts.count('E') + row_shifts.count('12-8') + row_shifts.count('支-E') + 0.5*(row_shifts.count('4-8') + row_shifts.count('1-8')))
@@ -919,12 +815,10 @@ with tab_run:
                         elif "固定大" in f_type: b_count = row_shifts.count('N') + row_shifts.count('支-N')
                         elif "新" in f_type: b_count = row_shifts.count('D') + row_shifts.count('L') + 0.5 * row_shifts.count('8-12') + row_shifts.count('支-D')
                         elif "前D後E" in f_type: b_count = row_shifts.count('D') + row_shifts.count('L') + 0.5 * row_shifts.count('8-12') + row_shifts.count('支-D') + row_shifts.count('E') + row_shifts.count('12-8') + 0.5 * (row_shifts.count('4-8') + row_shifts.count('1-8')) + row_shifts.count('支-E')
-                        
                         b_str = fmt_num(b_count) if (b_count > 0 or f_type != "無 (三班混合)") else '-'
                         
                         excel_data.append([n, f_type, ps, streak] + row_shifts + [off_count, n_count, e_count, b_str])
                         ui_display_rows.append([short_name, n, f_type] + display_row + [off_count, n_count, e_count])
-                        
                         stats[n] = {
                             '休假(Off)': off_count, '📍包班/新白': b_str, '白(D)': row_shifts.count('D'),
                             '👑 Leader(L)': row_shifts.count('L'), '小(E)': row_shifts.count('E'), '大(N)': row_shifts.count('N'),
@@ -932,32 +826,25 @@ with tab_run:
                             '行政(M)': row_shifts.count('M'), '公假': row_shifts.count('公'),
                             '支-D': row_shifts.count('支-D'), '支-E': row_shifts.count('支-E'), '支-N': row_shifts.count('支-N')
                         }
-                    
                     if short_name != '護理長':
-                        grp_n_fmt, grp_d_fmt, grp_e_fmt = [fmt_num(x) for x in grp_n], [fmt_num(x) for x in grp_d], [fmt_num(x) for x in grp_e]
-                        excel_data.append([f'{short_name}-N小計', '', '', ''] + grp_n_fmt + ['', '', '', ''])
-                        excel_data.append([f'{short_name}-D小計', '', '', ''] + grp_d_fmt + ['', '', '', ''])
-                        excel_data.append([f'{short_name}-E小計', '', '', ''] + grp_e_fmt + ['', '', '', ''])
+                        excel_data.append([f'{short_name}-N小計', '', '', ''] + [fmt_num(x) for x in grp_n] + ['', '', '', ''])
+                        excel_data.append([f'{short_name}-D小計', '', '', ''] + [fmt_num(x) for x in grp_d] + ['', '', '', ''])
+                        excel_data.append([f'{short_name}-E小計', '', '', ''] + [fmt_num(x) for x in grp_e] + ['', '', '', ''])
 
                 excel_data.append([''] * len(date_row))
-                global_n_fmt, global_d_fmt, global_e_fmt = [fmt_num(x) for x in global_n], [fmt_num(x) for x in global_d], [fmt_num(x) for x in global_e]
-                excel_data.append(['全站總計 N', '', '', ''] + global_n_fmt + ['', '', '', ''])
-                excel_data.append(['全站總計 D', '', '', ''] + global_d_fmt + ['', '', '', ''])
-                excel_data.append(['全站總計 E', '', '', ''] + global_e_fmt + ['', '', '', ''])
+                excel_data.append(['全站總計 N', '', '', ''] + [fmt_num(x) for x in global_n] + ['', '', '', ''])
+                excel_data.append(['全站總計 D', '', '', ''] + [fmt_num(x) for x in global_d] + ['', '', '', ''])
+                excel_data.append(['全站總計 E', '', '', ''] + [fmt_num(x) for x in global_e] + ['', '', '', ''])
                 
                 st.markdown("### 📊 排班結果總覽 (可左右滑動)")
-                df_ui = pd.DataFrame(ui_display_rows, columns=ui_columns)
-                st.markdown(df_ui.to_html(escape=False), unsafe_allow_html=True)
-                
-                st.write("---")
-                st.write("### 📊 本月各班別總計")
+                st.markdown(pd.DataFrame(ui_display_rows, columns=ui_columns).to_html(escape=False), unsafe_allow_html=True)
+                st.write("---"); st.write("### 📊 本月各班別總計")
                 st.dataframe(pd.DataFrame(stats).T)
                 
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer: 
                     pd.DataFrame(excel_data).to_excel(writer, sheet_name='總表', header=False, index=False)
                     ws_main, workbook = writer.sheets['總表'], writer.book
-                    
                     b_fmt = workbook.add_format({'align': 'center', 'valign': 'vcenter'})
                     w_fmt = workbook.add_format({'bg_color': '#FFF2CC', 'align': 'center', 'valign': 'vcenter'})
                     r_fmt = workbook.add_format({'font_color': 'red', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
@@ -968,41 +855,32 @@ with tab_run:
                     sh_fmt = workbook.add_format({'bg_color': '#EAEAEA', 'bold': True, 'align': 'left', 'valign': 'vcenter', 'font_color': '#333333'})
                     sn_fmt = workbook.add_format({'bg_color': '#EAEAEA', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
                     sw_fmt = workbook.add_format({'bg_color': '#DFD6A3', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
-                    
                     sf_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
                     ml_fmt = workbook.add_format({'bg_color': '#FFEB9C', 'font_color': '#9C5700', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
                     both_fmt = workbook.add_format({'bg_color': '#E26B0A', 'font_color': 'white', 'bold': True, 'align': 'center', 'valign': 'vcenter'})
                     
                     ws_main.set_column(0, 0, 16); ws_main.set_column(1, 1, 12); ws_main.set_column(2, 3, 6); ws_main.set_column(4, 3+num_days, 6) 
-                    
                     for r_idx, row_data in enumerate(excel_data):
                         if r_idx < 2: 
                             for c_idx, val in enumerate(row_data):
                                 if 4 <= c_idx < 4 + num_days:
                                     d = c_idx - 3
-                                    is_sf = daily_shortfalls[d]
-                                    is_ml = (d in missing_l_days)
+                                    is_sf, is_ml = daily_shortfalls[d], (d in missing_l_days)
                                     if is_sf and is_ml: ws_main.write(r_idx, c_idx, val, both_fmt)
                                     elif is_sf: ws_main.write(r_idx, c_idx, val, sf_fmt)
                                     elif is_ml: ws_main.write(r_idx, c_idx, val, ml_fmt)
                                     else: ws_main.write(r_idx, c_idx, val, h_fmt)
-                                else:
-                                    ws_main.write(r_idx, c_idx, val, h_fmt)
+                                else: ws_main.write(r_idx, c_idx, val, h_fmt)
                             continue
-                            
                         name = row_data[0]
-                        if name in ['🩸 【血腫組】', '🕊️ 【安寧組】', '👩‍⚕️ 【護理長】']:
-                            ws_main.merge_range(r_idx, 0, r_idx, len(row_data)-1, name, sec_fmt)
-                            continue
+                        if name in ['🩸 【血腫組】', '🕊️ 【安寧組】', '👩‍⚕️ 【護理長】']: ws_main.merge_range(r_idx, 0, r_idx, len(row_data)-1, name, sec_fmt); continue
                         if '全站總計' in name:
                             for c_idx, val in enumerate(row_data): ws_main.write(r_idx, c_idx, val, h_fmt)
                             continue
                         if '小計' in name:
                             for c_idx, val in enumerate(row_data):
                                 if c_idx == 0: ws_main.write(r_idx, c_idx, val, sh_fmt)
-                                elif 4 <= c_idx < 4 + num_days:
-                                    wd = calendar.weekday(year, month, c_idx - 3)
-                                    ws_main.write(r_idx, c_idx, val, sw_fmt if wd >= 5 else sn_fmt)
+                                elif 4 <= c_idx < 4 + num_days: ws_main.write(r_idx, c_idx, val, sw_fmt if calendar.weekday(year, month, c_idx - 3) >= 5 else sn_fmt)
                                 else: ws_main.write(r_idx, c_idx, val, sn_fmt)
                             continue
                         if name == '': continue
@@ -1015,6 +893,5 @@ with tab_run:
                             elif c_idx >= 4 + num_days: ws_main.write(r_idx, c_idx, val, s_fmt) 
                             else: ws_main.write(r_idx, c_idx, val, b_fmt)
                     ws_main.freeze_panes(2, 4)
-
                 st.download_button("📥 下載嚴格邏輯版 Excel (純淨總表)", output.getvalue(), f"{year}年{month}月_排班表.xlsx", type="primary", use_container_width=True)
             else: st.error("❌ 無解！(跨月防護或休假天數限制導致衝突，請嘗試放寬休假天數，或將部分固定班改為混合班)")
