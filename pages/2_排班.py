@@ -17,9 +17,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (6.4 旗艦版 + 極簡控制台)")
+st.title("🏥 智慧護理排班系統 (6.6 旗艦版 + 個人體質綁定)")
 
-# --- 2. 預設名單 ---
+# --- 2. 預設名單與讀取 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
 DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁', '安寧-張O嘉', '安寧-沈O叡', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
 DEFAULT_HN = '護理長-林O穎'
@@ -27,8 +27,11 @@ DEFAULT_HN = '護理長-林O穎'
 def load_staff_data():
     data = {
         "heme": DEFAULT_HEME, "pall": DEFAULT_PALL, "hn": DEFAULT_HN,
-        "heme_seniors": ['血腫-蔡O樺', '血腫-吳O茹'], 
-        "pall_seniors": ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁']
+        "heme_leaders": ['血腫-蔡O樺', '血腫-吳O茹'], 
+        "pall_leaders": ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁'],
+        "heme_n2": ['血腫-蔡O樺', '血腫-吳O茹'], 
+        "pall_n2": ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁'],
+        "staff_settings": {} # 儲存個人的連上連休設定
     }
     if os.path.exists('staff_v5.json'):
         try:
@@ -37,8 +40,11 @@ def load_staff_data():
                 if 'heme' in saved: data['heme'] = [x.strip() for x in saved['heme'] if x.strip()]
                 if 'pall' in saved: data['pall'] = [x.strip() for x in saved['pall'] if x.strip()]
                 if 'hn' in saved: data['hn'] = saved['hn'].strip()
-                if 'heme_seniors' in saved: data['heme_seniors'] = [x.strip() for x in saved['heme_seniors'] if x.strip()]
-                if 'pall_seniors' in saved: data['pall_seniors'] = [x.strip() for x in saved['pall_seniors'] if x.strip()]
+                if 'heme_leaders' in saved: data['heme_leaders'] = saved['heme_leaders']
+                if 'pall_leaders' in saved: data['pall_leaders'] = saved['pall_leaders']
+                if 'heme_n2' in saved: data['heme_n2'] = saved['heme_n2']
+                if 'pall_n2' in saved: data['pall_n2'] = saved['pall_n2']
+                if 'staff_settings' in saved: data['staff_settings'] = saved['staff_settings']
         except: pass
     return data
 
@@ -52,8 +58,12 @@ staff_data = load_staff_data()
 heme_staff = staff_data.get('heme', DEFAULT_HEME)
 pall_staff = staff_data.get('pall', DEFAULT_PALL)
 hn_name = staff_data.get('hn', DEFAULT_HN)
-heme_seniors = staff_data.get('heme_seniors', [])
-pall_seniors = staff_data.get('pall_seniors', [])
+
+heme_leaders = staff_data.get('heme_leaders', [])
+pall_leaders = staff_data.get('pall_leaders', [])
+heme_n2 = staff_data.get('heme_n2', [])
+pall_n2 = staff_data.get('pall_n2', [])
+staff_settings = staff_data.get('staff_settings', {})
 
 active_staff = heme_staff + pall_staff 
 all_staff = active_staff + [hn_name]
@@ -64,7 +74,6 @@ def fmt_num(n): return int(n) if n == int(n) else n
 # --- 3. 狀態初始化 ---
 if 'daily_shifts' not in st.session_state: st.session_state.daily_shifts = {n: {} for n in all_staff}
 if 'fixed' not in st.session_state: st.session_state.fixed = {n: "無 (三班混合)" for n in all_staff}
-if 'work_style' not in st.session_state: st.session_state.work_style = {n: "預設 (跟隨左側)" for n in all_staff}
 if 'prev_status' not in st.session_state: st.session_state.prev_status = {n: {'shift': 'Off'} for n in all_staff}
 if 'prev_streak' not in st.session_state: st.session_state.prev_streak = {n: 0 for n in all_staff}
 
@@ -145,11 +154,11 @@ with st.sidebar:
     with st.expander("📁 Excel 智慧匯入/匯出", expanded=False):
         st.write("**第一步：下載公版 (含目前設定)**")
         template_data = []
-        date_row = {"姓名": "日期", "屬性": "", "作息偏好": "", "上月最後班": "", "月底連上天數": ""}
+        date_row = {"姓名": "日期", "屬性": "", "上月最後班": "", "月底連上天數": ""}
         for d in range(1, num_days + 1): date_row[str(d)] = f"{month}/{d}"
         template_data.append(date_row)
         
-        week_row = {"姓名": "星期", "屬性": "", "作息偏好": "", "上月最後班": "", "月底連上天數": ""}
+        week_row = {"姓名": "星期", "屬性": "", "上月最後班": "", "月底連上天數": ""}
         weekdays_map = {0: '一', 1: '二', 2: '三', 3: '四', 4: '五', 5: '六', 6: '日'}
         for d in range(1, num_days + 1): week_row[str(d)] = weekdays_map[calendar.weekday(year, month, d)]
         template_data.append(week_row)
@@ -158,7 +167,6 @@ with st.sidebar:
             row = {
                 "姓名": n,
                 "屬性": st.session_state.fixed.get(n, "無 (三班混合)"),
-                "作息偏好": st.session_state.work_style.get(n, "預設 (跟隨左側)"),
                 "上月最後班": st.session_state.prev_status.get(n, {}).get("shift", "Off"),
                 "月底連上天數": st.session_state.prev_streak.get(n, 0)
             }
@@ -175,14 +183,14 @@ with st.sidebar:
             weekend_format = workbook.add_format({'bg_color': '#FFF2CC', 'align': 'center'}) 
             weekday_format = workbook.add_format({'align': 'center'})
             worksheet.set_column('A:A', 14)
-            worksheet.set_column('B:D', 14) 
-            worksheet.set_column('E:F', 10) 
+            worksheet.set_column('B:B', 14) 
+            worksheet.set_column('C:D', 10) 
             for d in range(1, num_days + 1):
                 wd = calendar.weekday(year, month, d)
-                col_idx = 4 + d 
+                col_idx = 2 + d 
                 if wd >= 5: worksheet.set_column(col_idx, col_idx, 6, weekend_format)
                 else: worksheet.set_column(col_idx, col_idx, 6, weekday_format)
-            worksheet.freeze_panes(2, 5)
+            worksheet.freeze_panes(2, 4)
             
         st.download_button("📥 下載 Excel 預班表", output_template.getvalue(), f"{year}年{month}月_打碼預班表.xlsx", type="primary", use_container_width=True)
         
@@ -220,13 +228,6 @@ with st.sidebar:
                             st.session_state.fixed[name] = new_fix
                             st.session_state[f"fix_{name}"] = new_fix 
 
-                        style_col = "作息偏好" if "作息偏好" in df_in.columns else ("作息" if "作息" in df_in.columns else None)
-                        if style_col:
-                            s_val = str(row[style_col]).strip()
-                            if "長" in s_val or "衝" in s_val: st.session_state.work_style[name] = "衝刺長假型 (可連上6/休無上限)"
-                            elif "短" in s_val or "養" in s_val: st.session_state.work_style[name] = "養生短打型 (最多連上4/休3)"
-                            else: st.session_state.work_style[name] = "預設 (跟隨左側)"
-                        
                         last_col = "上月" if "上月" in df_in.columns else ("上月最後班" if "上月最後班" in df_in.columns else None)
                         if last_col:
                             lv = str(row[last_col]).strip().upper()
@@ -283,12 +284,21 @@ with st.sidebar:
                     st.error(f"檔案讀取失敗: {e}")
                 st.rerun()
 
-    with st.expander("👥 人員與資深名單管理", expanded=False):
-        st.write("💡 直接在表格內編輯姓名、更改組別，或**勾選誰是資深人員 (N2+)**！您也可以點擊最下方空白列新增人員。")
+    # 🔥 6.6 版：結合體質設定的人員總表 🔥
+    with st.expander("👥 人員與身分管理 (加入客製化體質設定)", expanded=False):
+        st.write("💡 直接在表格內編輯姓名、設定組別、勾選身分，並**自訂每個人的極限連上/連休天數**！")
+        
         staff_rows = []
-        for n in heme_staff: staff_rows.append({"組別": "🩸 血腫組", "姓名": n, "資深(N2+)": n in heme_seniors})
-        for n in pall_staff: staff_rows.append({"組別": "🕊️ 安寧組", "姓名": n, "資深(N2+)": n in pall_seniors})
-        staff_rows.append({"組別": "👩‍⚕️ 護理長", "姓名": hn_name, "資深(N2+)": True})
+        for n in heme_staff: 
+            p_set = staff_settings.get(n, {})
+            staff_rows.append({"組別": "🩸 血腫組", "姓名": n, "可當Leader": n in heme_leaders, "資深(N2+)": n in heme_n2, "最多連上(天)": p_set.get('max_w', 5), "最多連休(天)": p_set.get('max_o', 4)})
+        for n in pall_staff: 
+            p_set = staff_settings.get(n, {})
+            staff_rows.append({"組別": "🕊️ 安寧組", "姓名": n, "可當Leader": n in pall_leaders, "資深(N2+)": n in pall_n2, "最多連上(天)": p_set.get('max_w', 5), "最多連休(天)": p_set.get('max_o', 4)})
+        
+        hn_set = staff_settings.get(hn_name, {})
+        staff_rows.append({"組別": "👩‍⚕️ 護理長", "姓名": hn_name, "可當Leader": True, "資深(N2+)": True, "最多連上(天)": hn_set.get('max_w', 5), "最多連休(天)": hn_set.get('max_o', 4)})
+        
         df_staff = pd.DataFrame(staff_rows)
         
         edited_df = st.data_editor(
@@ -296,27 +306,42 @@ with st.sidebar:
             column_config={
                 "組別": st.column_config.SelectboxColumn("組別", options=["🩸 血腫組", "🕊️ 安寧組", "👩‍⚕️ 護理長"], required=True),
                 "姓名": st.column_config.TextColumn("姓名", required=True),
-                "資深(N2+)": st.column_config.CheckboxColumn("資深(N2+)", default=False)
+                "可當Leader": st.column_config.CheckboxColumn("可當Leader", default=False),
+                "資深(N2+)": st.column_config.CheckboxColumn("資深(N2+)", default=False),
+                "最多連上(天)": st.column_config.NumberColumn("最多連上(天)", min_value=2, max_value=7, default=5, step=1, help="極限值，預設5天"),
+                "最多連休(天)": st.column_config.NumberColumn("最多連休(天)", min_value=1, max_value=15, default=4, step=1, help="防止休假太過集中，長假派可設大一點"),
             },
             num_rows="dynamic", use_container_width=True, hide_index=True
         )
 
-        if st.button("💾 儲存名單與資深設定", use_container_width=True, type="primary"):
+        if st.button("💾 儲存名單與個人設定", use_container_width=True, type="primary"):
             valid_df = edited_df[edited_df['姓名'].astype(str).str.strip() != '']
             new_heme = valid_df[valid_df["組別"] == "🩸 血腫組"]["姓名"].astype(str).str.strip().tolist()
             new_pall = valid_df[valid_df["組別"] == "🕊️ 安寧組"]["姓名"].astype(str).str.strip().tolist()
             new_hn_list = valid_df[valid_df["組別"] == "👩‍⚕️ 護理長"]["姓名"].astype(str).str.strip().tolist()
             new_hn = new_hn_list[0] if new_hn_list else DEFAULT_HN
-            new_h_seniors = valid_df[(valid_df["組別"] == "🩸 血腫組") & (valid_df["資深(N2+)"] == True)]["姓名"].astype(str).str.strip().tolist()
-            new_p_seniors = valid_df[(valid_df["組別"] == "🕊️ 安寧組") & (valid_df["資深(N2+)"] == True)]["姓名"].astype(str).str.strip().tolist()
+            
+            new_h_leaders = valid_df[(valid_df["組別"] == "🩸 血腫組") & (valid_df["可當Leader"] == True)]["姓名"].astype(str).str.strip().tolist()
+            new_p_leaders = valid_df[(valid_df["組別"] == "🕊️ 安寧組") & (valid_df["可當Leader"] == True)]["姓名"].astype(str).str.strip().tolist()
+            
+            new_h_n2 = valid_df[(valid_df["組別"] == "🩸 血腫組") & (valid_df["資深(N2+)"] == True)]["姓名"].astype(str).str.strip().tolist()
+            new_p_n2 = valid_df[(valid_df["組別"] == "🕊️ 安寧組") & (valid_df["資深(N2+)"] == True)]["姓名"].astype(str).str.strip().tolist()
+
+            new_settings = {}
+            for _, row in valid_df.iterrows():
+                n_name = str(row['姓名']).strip()
+                new_settings[n_name] = {'max_w': int(row['最多連上(天)']), 'max_o': int(row['最多連休(天)'])}
 
             staff_data['heme'] = new_heme
             staff_data['pall'] = new_pall
             staff_data['hn'] = new_hn
-            staff_data['heme_seniors'] = new_h_seniors
-            staff_data['pall_seniors'] = new_p_seniors
+            staff_data['heme_leaders'] = new_h_leaders
+            staff_data['pall_leaders'] = new_p_leaders
+            staff_data['heme_n2'] = new_h_n2
+            staff_data['pall_n2'] = new_p_n2
+            staff_data['staff_settings'] = new_settings
             save_staff_data(staff_data)
-            st.success("🎉 人員名單與資深設定已成功儲存！請重新整理網頁套用。")
+            st.success("🎉 儲存成功！體質設定已永久綁定人員名單。請重新整理網頁套用。")
             st.rerun()
 
     st.write("---")
@@ -329,17 +354,10 @@ with st.sidebar:
     allowed_off_gap = st.slider("⚖️ 允許休假天數最大落差", 0, 10, 4)
     balance_48_weight = st.slider("⚖️ 4-8 班次均分防護 (越高越平均)", 0, 1000, 500)
     
-    st.markdown("**⚙️ 全域作息極限 (無特殊偏好者)**")
-    soft_max_streak = st.slider("💡 期望最多連上天數", 3, 7, 4)
-    hard_max_streak = st.slider("🛑 絕對極限連上天數", 3, 7, 5)
-    max_cons_off = st.slider("🏖️ 最多連休天數 (把休假均勻打散)", 2, 10, 4) 
-    allow_iso_work = st.checkbox("🌟 允許單日上班 (增加排班彈性)", value=True)
-
     st.markdown("**🛡️ 隱藏防護網已啟動**")
     st.info("✓ 班班有資深 (每班N2+至少1名)\n\n✓ 三班不亂跳 (不接索命班)\n\n✓ 避免單日休假 (護肝機制)\n\n✓ 包班15天鐵血保障")
     
     holiday_dates = st.multiselect("🎈 勾選國定假日", list(range(1, num_days+1)))
-
     st.write("---")
     st.write("🐣 **新人防撞班與訓練設定**")
     newbie_list = st.multiselect("選擇訓練中的新人 (防撞班 + 訓練當日自動折抵 4-8)", active_staff)
@@ -347,13 +365,13 @@ with st.sidebar:
 # --- 5. 人員卡片 ---
 def render_staff_card(name, year, month, is_hn=False):
     fix_status = st.session_state.fixed.get(name, "無 (三班混合)")
-    is_leader = name in heme_seniors or name in pall_seniors
+    is_leader = name in heme_leaders or name in pall_leaders
     base_icon = "🌟" if is_leader else "🟢"
     icon = "👑" if is_hn else ("🐣" if "新" in fix_status else ("☀️" if "白" in fix_status else ("🌙" if "小" in fix_status else ("✨" if "大" in fix_status else base_icon))))
     
     with st.expander(f"{icon} {name}  |  狀態: {fix_status}", expanded=False):
         if not is_hn:
-            c1, c2, c3, c4 = st.columns([1, 1, 1.3, 1.3])
+            c1, c2, c3 = st.columns([1, 1, 2])
             with c1:
                 if f"ps_{name}" not in st.session_state: st.session_state[f"ps_{name}"] = st.session_state.prev_status.get(name, {}).get('shift', 'Off')
                 new_s = st.selectbox("上月最後天", ['Off', 'D', 'E', 'N', 'L', '支-D', '支-E', '支-N'], key=f"ps_{name}")
@@ -367,12 +385,6 @@ def render_staff_card(name, year, month, is_hn=False):
                     cur = st.session_state.fixed.get(name, "無 (三班混合)")
                     st.session_state[f"fix_{name}"] = cur if cur in opts_f else "無 (三班混合)"
                 st.session_state.fixed[name] = st.selectbox("本月固定班", opts_f, key=f"fix_{name}")
-            with c4:
-                opts_style = ["預設 (跟隨左側)", "衝刺長假型 (可連上6/休無上限)", "養生短打型 (最多連上4/休3)"]
-                if f"ws_{name}" not in st.session_state:
-                    cur_ws = st.session_state.work_style.get(name, "預設 (跟隨左側)")
-                    st.session_state[f"ws_{name}"] = cur_ws if cur_ws in opts_style else "預設 (跟隨左側)"
-                st.session_state.work_style[name] = st.selectbox("休假作息偏好", opts_style, key=f"ws_{name}")
 
         st.divider()
         cols = st.columns(7)
@@ -403,12 +415,11 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (啟動隱藏防護網與極簡演算)"):
+        with st.spinner("神經網路運算中... (套用個人化體質極限)"):
             
-            # 🔥 將原本的拉桿改為底層隱藏常數 🔥
-            shift_consistency_weight = 500  # 班別一致性
-            anti_frag_weight = 200          # 護肝指數 (盡量避免單日休假)
-            senior_per_shift_weight = 50000 # 班班有資深 (高權重警告)
+            shift_consistency_weight = 500  
+            anti_frag_weight = 200          
+            senior_per_shift_weight = 50000 
 
             model = cp_model.CpModel()
             work = {}
@@ -424,23 +435,13 @@ with tab_run:
             for n in active_staff:
                 user_shifts = st.session_state.daily_shifts.get(n, {})
                 f_type = st.session_state.fixed.get(n, "")
-                p_style = st.session_state.work_style.get(n, "預設 (跟隨左側)")
                 
                 # --- 個人化作息參數解析 ---
-                if "長假" in p_style or "衝刺" in p_style:
-                    p_hard_max = 6
-                    p_soft_max = 5
-                    p_max_off = num_days 
-                elif "短打" in p_style or "養生" in p_style:
-                    p_hard_max = 4
-                    p_soft_max = 3
-                    p_max_off = 3
-                else:
-                    p_hard_max = hard_max_streak
-                    p_soft_max = soft_max_streak
-                    p_max_off = max_cons_off
+                p_set = staff_settings.get(n, {})
+                p_hard_max = p_set.get('max_w', 5)
+                p_max_off = p_set.get('max_o', 4)
+                p_soft_max = max(1, p_hard_max - 1) 
 
-                # 手動與彈性防護
                 for d, s_val in user_shifts.items():
                     if s_val in SHIFTS: model.Add(work[(n, d, SHIFTS.index(s_val))] == 1)
                     elif s_val == 'D/E': model.Add(sum(work[(n, d, i)] for i in [1, 2, 4, 5]) == 1)
@@ -613,10 +614,6 @@ with tab_run:
                     iso_off = model.NewBoolVar(f'iso_off_{n}_{d}')
                     model.Add(iso_off >= W[d-1] - W[d] + W[d+1] - 1)
                     fragmentation_penalties.append(iso_off)
-                    if not allow_iso_work:
-                        iso_work = model.NewBoolVar(f'iso_work_{n}_{d}')
-                        model.Add(iso_work >= -W[d-1] + W[d] - W[d+1])
-                        fragmentation_penalties.append(iso_work)
 
             max_48_var = model.NewIntVar(0, 31, 'max_48')
             for n in active_staff:
@@ -658,7 +655,9 @@ with tab_run:
                 shortfall_vars.append((day, sf))
                 surplus_vars.append((day, surp))
 
-            valid_seniors = list(set([n for n in heme_seniors if n in heme_staff] + [n for n in pall_seniors if n in pall_staff]))
+            valid_leaders = list(set([n for n in heme_leaders if n in heme_staff] + [n for n in pall_leaders if n in pall_staff]))
+            valid_n2 = list(set([n for n in heme_n2 if n in heme_staff] + [n for n in pall_n2 if n in pall_staff]))
+            
             leader_shortfalls = []
             senior_shift_shortfalls = []
             idx_D_group = [1, 6, 10, 11] # D, 8-12, L, 支-D
@@ -673,7 +672,6 @@ with tab_run:
                 is_holiday = (d in holiday_dates)
                 is_weekday = (wd < 5) 
                 
-                # --- 血腫組 ---
                 if wd < 5 and not is_holiday: base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_wd_d, h_wd_e, h_wd_n, h_wd_48, 0, 0
                 elif wd == 5 and not is_holiday: base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_sa_d, h_sa_e, h_sa_n, 0, 0, h_sa_812
                 else: base_h_d, base_h_e, base_h_n, base_h_48, base_h_128, base_h_812 = h_su_d, h_su_e, h_su_n, 0, 0, 0
@@ -690,7 +688,6 @@ with tab_run:
                 if base_h_48 > 0: add_exact_demand(heme_staff, d, [5], h_48)
                 if base_h_812 > 0: add_exact_demand(heme_staff, d, [6], h_812)
 
-                # --- 安寧組 ---
                 if is_weekday and not is_holiday:
                     if wd == 4: base_p_d, base_p_e, base_p_n, base_p_48, base_p_128 = p_f_d, p_f_e, p_f_n, p_f_48, p_f_128
                     else:
@@ -717,12 +714,12 @@ with tab_run:
 
                 if is_weekday:
                     for n in active_staff:
-                        if n not in valid_seniors and st.session_state.daily_shifts.get(n, {}).get(d) != 'L':
+                        if n not in valid_leaders and st.session_state.daily_shifts.get(n, {}).get(d) != 'L':
                             model.Add(work[(n, d, 10)] == 0)
                     manual_L = sum(1 for n in active_staff if st.session_state.daily_shifts.get(n, {}).get(d) == 'L')
                     model.Add(sum(work[(n, d, 10)] for n in active_staff) <= max(1, manual_L))
                     sf_l = model.NewIntVar(0, 1, f'sf_l_{d}')
-                    model.Add(sum(work[(n, d, 10)] for n in valid_seniors) + sf_l >= 1)
+                    model.Add(sum(work[(n, d, 10)] for n in valid_leaders) + sf_l >= 1)
                     leader_shortfalls.append((d, sf_l))
                 else:
                     for n in active_staff:
@@ -735,15 +732,15 @@ with tab_run:
                 hn_n = 1 if hn_s in ['N'] else 0
                 
                 sf_sd = model.NewIntVar(0, 10, f'sf_sd_{d}')
-                model.Add(sum(work[(n, d, s)] for n in valid_seniors for s in idx_D_group) + sf_sd >= (1 - hn_d))
+                model.Add(sum(work[(n, d, s)] for n in valid_n2 for s in idx_D_group) + sf_sd >= (1 - hn_d))
                 senior_shift_shortfalls.append(sf_sd)
                 
                 sf_se = model.NewIntVar(0, 10, f'sf_se_{d}')
-                model.Add(sum(work[(n, d, s)] for n in valid_seniors for s in idx_E_group) + sf_se >= (1 - hn_e))
+                model.Add(sum(work[(n, d, s)] for n in valid_n2 for s in idx_E_group) + sf_se >= (1 - hn_e))
                 senior_shift_shortfalls.append(sf_se)
                 
                 sf_sn = model.NewIntVar(0, 10, f'sf_sn_{d}')
-                model.Add(sum(work[(n, d, s)] for n in valid_seniors for s in idx_N_group) + sf_sn >= (1 - hn_n))
+                model.Add(sum(work[(n, d, s)] for n in valid_n2 for s in idx_N_group) + sf_sn >= (1 - hn_n))
                 senior_shift_shortfalls.append(sf_sn)
 
             max_off_var = model.NewIntVar(0, 31, 'max_off')
@@ -791,9 +788,9 @@ with tab_run:
                     hn_d = 1 if hn_s in ['D', 'L', '8-12', 'M', '公'] else 0
                     hn_e = 1 if hn_s in ['E', '12-8', '4-8', '1-8'] else 0
                     hn_n = 1 if hn_s in ['N'] else 0
-                    if sum(solver.Value(work[(n, d, s)]) for n in valid_seniors for s in idx_D_group) + hn_d == 0: missing_snr_d.append(str(d))
-                    if sum(solver.Value(work[(n, d, s)]) for n in valid_seniors for s in idx_E_group) + hn_e == 0: missing_snr_e.append(str(d))
-                    if sum(solver.Value(work[(n, d, s)]) for n in valid_seniors for s in idx_N_group) + hn_n == 0: missing_snr_n.append(str(d))
+                    if sum(solver.Value(work[(n, d, s)]) for n in valid_n2 for s in idx_D_group) + hn_d == 0: missing_snr_d.append(str(d))
+                    if sum(solver.Value(work[(n, d, s)]) for n in valid_n2 for s in idx_E_group) + hn_e == 0: missing_snr_e.append(str(d))
+                    if sum(solver.Value(work[(n, d, s)]) for n in valid_n2 for s in idx_N_group) + hn_n == 0: missing_snr_n.append(str(d))
                 
                 unrescued_l, rescued_l = [], []
                 missing_l_days = [d for d, sf in leader_shortfalls if solver.Value(sf) > 0]
