@@ -17,7 +17,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (6.1 旗艦版 + 個人化作息偏好)")
+st.title("🏥 智慧護理排班系統 (6.3 旗艦版 + 互動式名單)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -28,7 +28,6 @@ def load_staff_data():
     data = {
         "heme": DEFAULT_HEME, "pall": DEFAULT_PALL, "hn": DEFAULT_HN,
         "heme_seniors": ['血腫-蔡O樺', '血腫-吳O茹'], 
-        # 🔥 已經將「安寧-潘O菁」加入預設 Leader 名單 🔥
         "pall_seniors": ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁']
     }
     if os.path.exists('staff_v5.json'):
@@ -284,31 +283,51 @@ with st.sidebar:
                     st.error(f"檔案讀取失敗: {e}")
                 st.rerun()
 
-    with st.expander("👥 人員名單設定", expanded=False):
-        st.write("在此新增或刪除人員：")
-        with st.form("staff_form"):
-            new_heme = st.text_area("🩸 血腫組", value="\n".join(heme_staff), height=150)
-            new_pall = st.text_area("🕊️ 安寧組", value="\n".join(pall_staff), height=200)
-            new_hn = st.text_input("👩‍⚕️ 護理長", value=hn_name)
-            if st.form_submit_button("💾 儲存人員名單"):
-                staff_data['heme'] = [x.strip() for x in new_heme.split('\n') if x.strip()]
-                staff_data['pall'] = [x.strip() for x in new_pall.split('\n') if x.strip()]
-                staff_data['hn'] = new_hn.strip()
-                save_staff_data(staff_data)
-                st.success("名單已儲存！請重整網頁套用新名單。")
-                st.rerun()
+    # 🔥 6.3 版：全新互動式 Data Editor 人員管理 🔥
+    with st.expander("👥 人員與資深名單管理 (全新勾選版)", expanded=False):
+        st.write("💡 直接在表格內編輯姓名、更改組別，或**勾選誰是資深人員 (N2+)**！您也可以點擊最下方空白列新增人員。")
+        
+        # 將目前的名單轉成 DataFrame 餵給 Editor
+        staff_rows = []
+        for n in heme_staff: staff_rows.append({"組別": "🩸 血腫組", "姓名": n, "資深(N2+)": n in heme_seniors})
+        for n in pall_staff: staff_rows.append({"組別": "🕊️ 安寧組", "姓名": n, "資深(N2+)": n in pall_seniors})
+        staff_rows.append({"組別": "👩‍⚕️ 護理長", "姓名": hn_name, "資深(N2+)": True}) # 護理長固定資深
+        
+        df_staff = pd.DataFrame(staff_rows)
+        
+        edited_df = st.data_editor(
+            df_staff,
+            column_config={
+                "組別": st.column_config.SelectboxColumn("組別", options=["🩸 血腫組", "🕊️ 安寧組", "👩‍⚕️ 護理長"], required=True),
+                "姓名": st.column_config.TextColumn("姓名", required=True),
+                "資深(N2+)": st.column_config.CheckboxColumn("資深(N2+)", default=False)
+            },
+            num_rows="dynamic", # 允許使用者動態新增/刪除行
+            use_container_width=True,
+            hide_index=True
+        )
 
-    with st.expander("👑 白班 Leader (資深人員) 設定", expanded=False):
-        st.write("勾選可擔任白班 Leader 的資深護理師：")
-        with st.form("leader_form"):
-            new_h_seniors = st.multiselect("🩸 血腫資深", heme_staff, default=[x for x in heme_seniors if x in heme_staff])
-            new_p_seniors = st.multiselect("🕊️ 安寧資深", pall_staff, default=[x for x in pall_seniors if x in pall_staff])
-            if st.form_submit_button("💾 儲存 Leader 名單"):
-                staff_data['heme_seniors'] = new_h_seniors
-                staff_data['pall_seniors'] = new_p_seniors
-                save_staff_data(staff_data)
-                st.success("Leader 名單已儲存！")
-                st.rerun()
+        if st.button("💾 儲存名單與資深設定", use_container_width=True, type="primary"):
+            # 處理防呆 (過濾掉名字空白的行)
+            valid_df = edited_df[edited_df['姓名'].astype(str).str.strip() != '']
+            
+            new_heme = valid_df[valid_df["組別"] == "🩸 血腫組"]["姓名"].astype(str).str.strip().tolist()
+            new_pall = valid_df[valid_df["組別"] == "🕊️ 安寧組"]["姓名"].astype(str).str.strip().tolist()
+            new_hn_list = valid_df[valid_df["組別"] == "👩‍⚕️ 護理長"]["姓名"].astype(str).str.strip().tolist()
+            new_hn = new_hn_list[0] if new_hn_list else DEFAULT_HN
+
+            new_h_seniors = valid_df[(valid_df["組別"] == "🩸 血腫組") & (valid_df["資深(N2+)"] == True)]["姓名"].astype(str).str.strip().tolist()
+            new_p_seniors = valid_df[(valid_df["組別"] == "🕊️ 安寧組") & (valid_df["資深(N2+)"] == True)]["姓名"].astype(str).str.strip().tolist()
+
+            staff_data['heme'] = new_heme
+            staff_data['pall'] = new_pall
+            staff_data['hn'] = new_hn
+            staff_data['heme_seniors'] = new_h_seniors
+            staff_data['pall_seniors'] = new_p_seniors
+            
+            save_staff_data(staff_data)
+            st.success("🎉 人員名單與資深設定已成功儲存！請重新整理網頁套用。")
+            st.rerun()
 
     st.write("---")
     st.write("⚖️ **核心排班規則設定**")
@@ -324,9 +343,10 @@ with st.sidebar:
     hard_max_streak = st.slider("🛑 6. 全域絕對極限連上天數", 3, 7, 5)
     max_cons_off = st.slider("🏖️ 7. 全域最多連休天數 (把休假打散)", 2, 10, 4) 
     balance_48_weight = st.slider("⚖️ 8. 平均分配 4-8 班次 (避免全部塞給同一人)", 0, 1000, 500)
-    st.info("🎯 9. 包班最低達標天數 (鐵血保證)：已由系統固定為 15 天")
-    min_bonus_days = 15
-    holiday_dates = st.multiselect("🎈 10. 勾選國定假日", list(range(1, num_days+1)))
+    senior_per_shift_weight = st.slider("👑 9. 每班(D/E/N)跨組至少 1 名資深人員", 0, 100000, 50000)
+    
+    st.info("🎯 10. 包班最低達標天數 (鐵血保證)：已由系統固定為 15 天")
+    holiday_dates = st.multiselect("🎈 11. 勾選國定假日", list(range(1, num_days+1)))
 
     st.write("---")
     st.write("🐣 **新人防撞班與訓練設定**")
@@ -391,7 +411,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (啟動個人作息偏好與極限防護)"):
+        with st.spinner("神經網路運算中... (啟動資深戰力防護網)"):
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
@@ -408,7 +428,7 @@ with tab_run:
                 f_type = st.session_state.fixed.get(n, "")
                 p_style = st.session_state.work_style.get(n, "預設 (跟隨左側)")
                 
-                # --- 個人化作息參數解析 (最高連上 6 天) ---
+                # --- 個人化作息參數解析 ---
                 if "長假" in p_style or "衝刺" in p_style:
                     p_hard_max = 6
                     p_soft_max = 5
@@ -511,7 +531,7 @@ with tab_run:
                                 model.Add(change_var >= work[(n, d, s1)] + work[(n, d+1, s2)] - 1)
                                 shift_changes.append(change_var)
 
-                # 🔥 個人化限制連續上班天數 🔥
+                # 個人化限制連續上班天數
                 window_size = p_hard_max + 1
                 for d in range(1, num_days - window_size + 2):
                     manual_violation = True
@@ -535,7 +555,7 @@ with tab_run:
                     if not manual_violation:
                         model.Add(sum(work[(n, k, 0)] for k in range(1, window_end + 1)) >= 1)
 
-                # 🔥 個人化限制連續休假天數 🔥
+                # 個人化限制連續休假天數
                 off_window = p_max_off + 1
                 if off_window <= num_days:
                     for d in range(1, num_days - off_window + 2):
@@ -640,8 +660,13 @@ with tab_run:
                 shortfall_vars.append((day, sf))
                 surplus_vars.append((day, surp))
 
-            leader_shortfalls = []
             valid_seniors = list(set([n for n in heme_seniors if n in heme_staff] + [n for n in pall_seniors if n in pall_staff]))
+            leader_shortfalls = []
+            senior_shift_shortfalls = []
+            idx_D_group = [1, 6, 10, 11] # D, 8-12, L, 支-D
+            idx_E_group = [2, 4, 5, 7, 12] # E, 12-8, 4-8, 1-8, 支-E
+            idx_N_group = [3, 13] # N, 支-N
+
             newbies_h = [n for n in newbie_list if n in heme_staff]
             newbies_p = [n for n in newbie_list if n in pall_staff]
 
@@ -705,6 +730,24 @@ with tab_run:
                     for n in active_staff:
                         if st.session_state.daily_shifts.get(n, {}).get(d) != 'L': model.Add(work[(n, d, 10)] == 0)
 
+                # 🔥 班班有資深 (N2+) 防護網 🔥
+                hn_s = st.session_state.daily_shifts.get(hn_name, {}).get(d, 'Off')
+                hn_d = 1 if hn_s in ['D', 'L', '8-12', 'M', '公'] else 0
+                hn_e = 1 if hn_s in ['E', '12-8', '4-8', '1-8'] else 0
+                hn_n = 1 if hn_s in ['N'] else 0
+                
+                sf_sd = model.NewIntVar(0, 10, f'sf_sd_{d}')
+                model.Add(sum(work[(n, d, s)] for n in valid_seniors for s in idx_D_group) + sf_sd >= (1 - hn_d))
+                senior_shift_shortfalls.append(sf_sd)
+                
+                sf_se = model.NewIntVar(0, 10, f'sf_se_{d}')
+                model.Add(sum(work[(n, d, s)] for n in valid_seniors for s in idx_E_group) + sf_se >= (1 - hn_e))
+                senior_shift_shortfalls.append(sf_se)
+                
+                sf_sn = model.NewIntVar(0, 10, f'sf_sn_{d}')
+                model.Add(sum(work[(n, d, s)] for n in valid_seniors for s in idx_N_group) + sf_sn >= (1 - hn_n))
+                senior_shift_shortfalls.append(sf_sn)
+
             max_off_var = model.NewIntVar(0, 31, 'max_off')
             min_off_var = model.NewIntVar(0, 31, 'min_off')
             for n in active_staff:
@@ -726,6 +769,7 @@ with tab_run:
                 - sum(sf for d, sf in shortfall_vars) * 1000000 
                 - sum(surp for d, surp in surplus_vars) * 8000 
                 - sum(sf for d, sf in leader_shortfalls) * 500000
+                - sum(senior_shift_shortfalls) * senior_per_shift_weight 
                 - sum(shift_changes) * shift_consistency_weight 
                 - sum(fragmentation_penalties) * anti_frag_weight 
                 - sum(streak_penalties) * 800  
@@ -743,6 +787,16 @@ with tab_run:
                 surplus_amount = int(sum(solver.Value(surp) for d, surp in surplus_vars))
                 daily_shortfalls = {d: (solver.Value(sf) > 0) for d, sf in shortfall_vars}
                 
+                missing_snr_d, missing_snr_e, missing_snr_n = [], [], []
+                for d in range(1, num_days+1):
+                    hn_s = st.session_state.daily_shifts.get(hn_name, {}).get(d, 'Off')
+                    hn_d = 1 if hn_s in ['D', 'L', '8-12', 'M', '公'] else 0
+                    hn_e = 1 if hn_s in ['E', '12-8', '4-8', '1-8'] else 0
+                    hn_n = 1 if hn_s in ['N'] else 0
+                    if sum(solver.Value(work[(n, d, s)]) for n in valid_seniors for s in idx_D_group) + hn_d == 0: missing_snr_d.append(str(d))
+                    if sum(solver.Value(work[(n, d, s)]) for n in valid_seniors for s in idx_E_group) + hn_e == 0: missing_snr_e.append(str(d))
+                    if sum(solver.Value(work[(n, d, s)]) for n in valid_seniors for s in idx_N_group) + hn_n == 0: missing_snr_n.append(str(d))
+                
                 unrescued_l, rescued_l = [], []
                 missing_l_days = [d for d, sf in leader_shortfalls if solver.Value(sf) > 0]
                 for d_day in missing_l_days:
@@ -751,11 +805,13 @@ with tab_run:
                     else: unrescued_l.append(str(d_day))
                 
                 if unrescued_l: st.error(f"🚨 **警告！缺 L 日期：**{', '.join(unrescued_l)} 號")
-                if rescued_l: st.warning(f"⚠️ **提示**：{', '.join(rescued_l)} 號由護理長親自上陣救援 L 班！")
+                if missing_snr_d: st.warning(f"⚠️ **白班缺乏資深人員(N2+)：** {', '.join(missing_snr_d)} 號")
+                if missing_snr_e: st.warning(f"⚠️ **小夜缺乏資深人員(N2+)：** {', '.join(missing_snr_e)} 號")
+                if missing_snr_n: st.warning(f"⚠️ **大夜缺乏資深人員(N2+)：** {', '.join(missing_snr_n)} 號")
                 
                 if shortfall_amount > 0: st.error(f"🚨 嚴重警告！已達系統極限，仍有 {shortfall_amount} 個班次缺人。紅色標題日期為缺班日！")
                 elif surplus_amount > 0: st.info(f"💡 班表出爐！本月有 {surplus_amount} 個班次多出人力。")
-                elif not unrescued_l: st.success(f"✅ 完美報表產出！請滑動下方表格預覽，或下載 Excel！")
+                elif not unrescued_l and not missing_snr_d and not missing_snr_e and not missing_snr_n: st.success(f"✅ 完美報表產出！安全防護網已全數通過。請滑動下方表格預覽，或下載 Excel！")
                 
                 excel_data, ui_display_rows, ui_columns = [], [], ['組別', '姓名', '屬性']
                 for d in range(1, num_days+1):
