@@ -17,7 +17,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (6.3 旗艦版 + 互動式名單)")
+st.title("🏥 智慧護理排班系統 (6.4 旗艦版 + 極簡控制台)")
 
 # --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
@@ -283,16 +283,12 @@ with st.sidebar:
                     st.error(f"檔案讀取失敗: {e}")
                 st.rerun()
 
-    # 🔥 6.3 版：全新互動式 Data Editor 人員管理 🔥
-    with st.expander("👥 人員與資深名單管理 (全新勾選版)", expanded=False):
+    with st.expander("👥 人員與資深名單管理", expanded=False):
         st.write("💡 直接在表格內編輯姓名、更改組別，或**勾選誰是資深人員 (N2+)**！您也可以點擊最下方空白列新增人員。")
-        
-        # 將目前的名單轉成 DataFrame 餵給 Editor
         staff_rows = []
         for n in heme_staff: staff_rows.append({"組別": "🩸 血腫組", "姓名": n, "資深(N2+)": n in heme_seniors})
         for n in pall_staff: staff_rows.append({"組別": "🕊️ 安寧組", "姓名": n, "資深(N2+)": n in pall_seniors})
-        staff_rows.append({"組別": "👩‍⚕️ 護理長", "姓名": hn_name, "資深(N2+)": True}) # 護理長固定資深
-        
+        staff_rows.append({"組別": "👩‍⚕️ 護理長", "姓名": hn_name, "資深(N2+)": True})
         df_staff = pd.DataFrame(staff_rows)
         
         edited_df = st.data_editor(
@@ -302,20 +298,15 @@ with st.sidebar:
                 "姓名": st.column_config.TextColumn("姓名", required=True),
                 "資深(N2+)": st.column_config.CheckboxColumn("資深(N2+)", default=False)
             },
-            num_rows="dynamic", # 允許使用者動態新增/刪除行
-            use_container_width=True,
-            hide_index=True
+            num_rows="dynamic", use_container_width=True, hide_index=True
         )
 
         if st.button("💾 儲存名單與資深設定", use_container_width=True, type="primary"):
-            # 處理防呆 (過濾掉名字空白的行)
             valid_df = edited_df[edited_df['姓名'].astype(str).str.strip() != '']
-            
             new_heme = valid_df[valid_df["組別"] == "🩸 血腫組"]["姓名"].astype(str).str.strip().tolist()
             new_pall = valid_df[valid_df["組別"] == "🕊️ 安寧組"]["姓名"].astype(str).str.strip().tolist()
             new_hn_list = valid_df[valid_df["組別"] == "👩‍⚕️ 護理長"]["姓名"].astype(str).str.strip().tolist()
             new_hn = new_hn_list[0] if new_hn_list else DEFAULT_HN
-
             new_h_seniors = valid_df[(valid_df["組別"] == "🩸 血腫組") & (valid_df["資深(N2+)"] == True)]["姓名"].astype(str).str.strip().tolist()
             new_p_seniors = valid_df[(valid_df["組別"] == "🕊️ 安寧組") & (valid_df["資深(N2+)"] == True)]["姓名"].astype(str).str.strip().tolist()
 
@@ -324,29 +315,30 @@ with st.sidebar:
             staff_data['hn'] = new_hn
             staff_data['heme_seniors'] = new_h_seniors
             staff_data['pall_seniors'] = new_p_seniors
-            
             save_staff_data(staff_data)
             st.success("🎉 人員名單與資深設定已成功儲存！請重新整理網頁套用。")
             st.rerun()
 
     st.write("---")
     st.write("⚖️ **核心排班規則設定**")
+    
+    st.markdown("**🏖️ 休假與公平性**")
     col1, col2 = st.columns(2)
     min_off_days = col1.number_input("📉 最少休假天數", 0, 31, 6)
     max_off_days = col2.number_input("📈 最多休假天數", 0, 31, 10)
-    allowed_off_gap = st.slider("⚖️ 1. 允許休假天數最大落差 (增加彈性)", 0, 10, 4)
-    allow_iso_work = st.checkbox("🌟 2. 允許單日上班 (增加排班彈性)", value=True)
-    shift_consistency_weight = st.slider("🔀 3. 班別一致性 (同段班不換班)", 0, 1000, 500)
-    anti_frag_weight = st.slider("🛡️ 4. 護肝指數 (盡量避免單日休假)", 0, 500, 200)
+    allowed_off_gap = st.slider("⚖️ 允許休假天數最大落差", 0, 10, 4)
+    balance_48_weight = st.slider("⚖️ 4-8 班次均分防護 (越高越平均)", 0, 1000, 500)
     
-    soft_max_streak = st.slider("💡 5. 全域期望最多連上天數", 3, 7, 4)
-    hard_max_streak = st.slider("🛑 6. 全域絕對極限連上天數", 3, 7, 5)
-    max_cons_off = st.slider("🏖️ 7. 全域最多連休天數 (把休假打散)", 2, 10, 4) 
-    balance_48_weight = st.slider("⚖️ 8. 平均分配 4-8 班次 (避免全部塞給同一人)", 0, 1000, 500)
-    senior_per_shift_weight = st.slider("👑 9. 每班(D/E/N)跨組至少 1 名資深人員", 0, 100000, 50000)
+    st.markdown("**⚙️ 全域作息極限 (無特殊偏好者)**")
+    soft_max_streak = st.slider("💡 期望最多連上天數", 3, 7, 4)
+    hard_max_streak = st.slider("🛑 絕對極限連上天數", 3, 7, 5)
+    max_cons_off = st.slider("🏖️ 最多連休天數 (把休假均勻打散)", 2, 10, 4) 
+    allow_iso_work = st.checkbox("🌟 允許單日上班 (增加排班彈性)", value=True)
+
+    st.markdown("**🛡️ 隱藏防護網已啟動**")
+    st.info("✓ 班班有資深 (每班N2+至少1名)\n\n✓ 三班不亂跳 (不接索命班)\n\n✓ 避免單日休假 (護肝機制)\n\n✓ 包班15天鐵血保障")
     
-    st.info("🎯 10. 包班最低達標天數 (鐵血保證)：已由系統固定為 15 天")
-    holiday_dates = st.multiselect("🎈 11. 勾選國定假日", list(range(1, num_days+1)))
+    holiday_dates = st.multiselect("🎈 勾選國定假日", list(range(1, num_days+1)))
 
     st.write("---")
     st.write("🐣 **新人防撞班與訓練設定**")
@@ -411,7 +403,13 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (啟動資深戰力防護網)"):
+        with st.spinner("神經網路運算中... (啟動隱藏防護網與極簡演算)"):
+            
+            # 🔥 將原本的拉桿改為底層隱藏常數 🔥
+            shift_consistency_weight = 500  # 班別一致性
+            anti_frag_weight = 200          # 護肝指數 (盡量避免單日休假)
+            senior_per_shift_weight = 50000 # 班班有資深 (高權重警告)
+
             model = cp_model.CpModel()
             work = {}
             first_wd, num_days = calendar.monthrange(year, month)
