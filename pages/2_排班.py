@@ -17,9 +17,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 智慧護理排班系統 (6.6 旗艦版 + 個人體質綁定)")
+st.title("🏥 智慧護理排班系統 (6.7 旗艦版 + 休假自動精算)")
 
-# --- 2. 預設名單與讀取 ---
+# --- 2. 預設名單 ---
 DEFAULT_HEME = ['血腫-蔡O樺', '血腫-吳O茹', '血腫-張O葳', '血腫-葉O菁', '血腫-蔡O蓁', '血腫-呂O岑', '血腫-洪O蔚']
 DEFAULT_PALL = ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁', '安寧-張O嘉', '安寧-沈O叡', '安寧-許O禎', '安寧-吳O萍', '安寧-劉O君', '安寧-鐘O淇', '安寧-洪O安', '安寧-陳O柔', '安寧-黃O柔', '安寧-李O軒']
 DEFAULT_HN = '護理長-林O穎'
@@ -31,7 +31,7 @@ def load_staff_data():
         "pall_leaders": ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁'],
         "heme_n2": ['血腫-蔡O樺', '血腫-吳O茹'], 
         "pall_n2": ['安寧-龔O如', '安寧-葉O敏', '安寧-潘O菁'],
-        "staff_settings": {} # 儲存個人的連上連休設定
+        "staff_settings": {} 
     }
     if os.path.exists('staff_v5.json'):
         try:
@@ -185,9 +185,14 @@ with st.sidebar:
             worksheet.set_column('A:A', 14)
             worksheet.set_column('B:B', 14) 
             worksheet.set_column('C:D', 10) 
+            
+            # 🔥 修復底色位移 Bug：加入作息偏好後，1號已從index 4移到index 5
+            # 因此要 3 + d (因為前四欄 0~3 是姓名,屬性,上月,天數) 加上新架構是 4 + d 嗎？
+            # 這裡的預班表，我們隱藏了作息偏好，所以一樣只有4個固定欄位。所以 3+d 就是對的。
+            # 但我們檢查了，如果是 4個固定欄，index 4 就是 d=1。
             for d in range(1, num_days + 1):
                 wd = calendar.weekday(year, month, d)
-                col_idx = 2 + d 
+                col_idx = 3 + d 
                 if wd >= 5: worksheet.set_column(col_idx, col_idx, 6, weekend_format)
                 else: worksheet.set_column(col_idx, col_idx, 6, weekday_format)
             worksheet.freeze_panes(2, 4)
@@ -284,8 +289,8 @@ with st.sidebar:
                     st.error(f"檔案讀取失敗: {e}")
                 st.rerun()
 
-    # 🔥 6.6 版：結合體質設定的人員總表 🔥
-    with st.expander("👥 人員與身分管理 (加入客製化體質設定)", expanded=False):
+    # 🔥 結合體質設定的人員總表 🔥
+    with st.expander("👥 人員與身分管理 (自訂作息極限)", expanded=False):
         st.write("💡 直接在表格內編輯姓名、設定組別、勾選身分，並**自訂每個人的極限連上/連休天數**！")
         
         staff_rows = []
@@ -308,8 +313,8 @@ with st.sidebar:
                 "姓名": st.column_config.TextColumn("姓名", required=True),
                 "可當Leader": st.column_config.CheckboxColumn("可當Leader", default=False),
                 "資深(N2+)": st.column_config.CheckboxColumn("資深(N2+)", default=False),
-                "最多連上(天)": st.column_config.NumberColumn("最多連上(天)", min_value=2, max_value=7, default=5, step=1, help="極限值，預設5天"),
-                "最多連休(天)": st.column_config.NumberColumn("最多連休(天)", min_value=1, max_value=15, default=4, step=1, help="防止休假太過集中，長假派可設大一點"),
+                "最多連上(天)": st.column_config.NumberColumn("最多連上(天)", min_value=2, max_value=7, default=5, step=1),
+                "最多連休(天)": st.column_config.NumberColumn("最多連休(天)", min_value=1, max_value=15, default=4, step=1),
             },
             num_rows="dynamic", use_container_width=True, hide_index=True
         )
@@ -347,17 +352,29 @@ with st.sidebar:
     st.write("---")
     st.write("⚖️ **核心排班規則設定**")
     
+    # 🔥 全新加入：自動計算應休天數模組 🔥
+    st.markdown("**🎈 行事曆與應休天數自動計算**")
+    holiday_dates = st.multiselect("請勾選本月「國定假日」(系統會自動幫您加總至基本應休)", list(range(1, num_days+1)))
+    
+    num_weekends = sum(1 for d in range(1, num_days + 1) if calendar.weekday(year, month, d) >= 5)
+    auto_min_off = num_weekends + len(holiday_dates)
+    
+    st.info(f"💡 系統精算：本月週末 **{num_weekends}** 天 + 國定假日 **{len(holiday_dates)}** 天 = 基本應休 **{auto_min_off}** 天")
+    
     st.markdown("**🏖️ 休假與公平性**")
     col1, col2 = st.columns(2)
-    min_off_days = col1.number_input("📉 最少休假天數", 0, 31, 6)
-    max_off_days = col2.number_input("📈 最多休假天數", 0, 31, 10)
+    # 動態將 auto_min_off 帶入預設值中
+    min_off_days = col1.number_input("📉 最少休假天數", 0, 31, auto_min_off)
+    max_off_days = col2.number_input("📈 最多休假天數", 0, 31, auto_min_off + 2)
     allowed_off_gap = st.slider("⚖️ 允許休假天數最大落差", 0, 10, 4)
     balance_48_weight = st.slider("⚖️ 4-8 班次均分防護 (越高越平均)", 0, 1000, 500)
     
-    st.markdown("**🛡️ 隱藏防護網已啟動**")
-    st.info("✓ 班班有資深 (每班N2+至少1名)\n\n✓ 三班不亂跳 (不接索命班)\n\n✓ 避免單日休假 (護肝機制)\n\n✓ 包班15天鐵血保障")
+    st.markdown("**⚙️ 全域排班特殊權限**")
+    allow_iso_work = st.checkbox("🌟 允許單日上班 (增加排班彈性)", value=True)
+
+    st.markdown("**🛡️ 隱藏防護網已啟動 (免設定)**")
+    st.info("✓ 班班有資深 (每班N2+至少1名)\n\n✓ 三班不亂跳 (不接索命班)\n\n✓ 避免單日休假 (護肝機制)\n\n✓ 包班15天鐵血保障\n\n✓ 套用個人專屬連休/連上限制")
     
-    holiday_dates = st.multiselect("🎈 勾選國定假日", list(range(1, num_days+1)))
     st.write("---")
     st.write("🐣 **新人防撞班與訓練設定**")
     newbie_list = st.multiselect("選擇訓練中的新人 (防撞班 + 訓練當日自動折抵 4-8)", active_staff)
@@ -415,7 +432,7 @@ with tab_pall:
 
 with tab_run:
     if st.button("🚀 啟動排班", type="primary", use_container_width=True):
-        with st.spinner("神經網路運算中... (套用個人化體質極限)"):
+        with st.spinner("神經網路運算中... (啟動隱藏防護網與極簡演算)"):
             
             shift_consistency_weight = 500  
             anti_frag_weight = 200          
@@ -464,7 +481,6 @@ with tab_run:
                     if n in pall_staff and manual_shift != '8-12':
                         model.Add(work[(n, d, SHIFTS.index('8-12'))] == 0)
 
-                # 跨月規則
                 last_shift = st.session_state.prev_status.get(n, {}).get('shift', 'Off')
                 if 1 not in user_shifts:
                     if last_shift in ['E', '支-E']:
@@ -474,7 +490,6 @@ with tab_run:
                     elif last_shift in ['N', '支-N']: 
                         for s in [1, 6, 8, 9, 10]: model.Add(work[(n, 1, s)] == 0)
 
-                # 屬性排除邏輯
                 if "白" in f_type and "新" not in f_type:
                     for d in range(1, num_days+1): 
                         if d not in user_shifts:
@@ -509,7 +524,6 @@ with tab_run:
                     for d in range(1, num_days+1):
                         if d not in user_shifts: model.Add(work[(n,d,2)]==0); model.Add(work[(n,d,4)]==0); model.Add(work[(n,d,5)]==0); model.Add(work[(n,d,12)]==0)
 
-                # 班別順序防護
                 for d in range(1, num_days):
                     if d in user_shifts and (d+1) in user_shifts and user_shifts[d] not in ['D/E', 'E/4-8', '勿N', '勿D', '勿E'] and user_shifts[d+1] not in ['D/E', 'E/4-8', '勿N', '勿D', '勿E']: 
                         continue 
@@ -530,7 +544,6 @@ with tab_run:
                                 model.Add(change_var >= work[(n, d, s1)] + work[(n, d+1, s2)] - 1)
                                 shift_changes.append(change_var)
 
-                # 個人化限制連續上班天數
                 window_size = p_hard_max + 1
                 for d in range(1, num_days - window_size + 2):
                     manual_violation = True
@@ -554,7 +567,6 @@ with tab_run:
                     if not manual_violation:
                         model.Add(sum(work[(n, k, 0)] for k in range(1, window_end + 1)) >= 1)
 
-                # 個人化限制連續休假天數
                 off_window = p_max_off + 1
                 if off_window <= num_days:
                     for d in range(1, num_days - off_window + 2):
@@ -580,7 +592,6 @@ with tab_run:
                             model.AddBoolOr([work[(n, 1, 0)], pen])
                             streak_penalties.append(pen)
 
-                # 包班保證
                 allowed_bonus = []
                 if "白" in f_type and "新" not in f_type: allowed_bonus = [1, 10, 11]
                 elif "固定小" in f_type: allowed_bonus = [2, 4, 5, 7, 12] 
@@ -614,6 +625,10 @@ with tab_run:
                     iso_off = model.NewBoolVar(f'iso_off_{n}_{d}')
                     model.Add(iso_off >= W[d-1] - W[d] + W[d+1] - 1)
                     fragmentation_penalties.append(iso_off)
+                    if not allow_iso_work:
+                        iso_work = model.NewBoolVar(f'iso_work_{n}_{d}')
+                        model.Add(iso_work >= -W[d-1] + W[d] - W[d+1])
+                        fragmentation_penalties.append(iso_work)
 
             max_48_var = model.NewIntVar(0, 31, 'max_48')
             for n in active_staff:
@@ -725,7 +740,6 @@ with tab_run:
                     for n in active_staff:
                         if st.session_state.daily_shifts.get(n, {}).get(d) != 'L': model.Add(work[(n, d, 10)] == 0)
 
-                # 🔥 班班有資深 (N2+) 防護網 🔥
                 hn_s = st.session_state.daily_shifts.get(hn_name, {}).get(d, 'Off')
                 hn_d = 1 if hn_s in ['D', 'L', '8-12', 'M', '公'] else 0
                 hn_e = 1 if hn_s in ['E', '12-8', '4-8', '1-8'] else 0
